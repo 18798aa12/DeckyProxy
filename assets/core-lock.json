@@ -1,0 +1,19 @@
+{
+  "version": "v1.19.32",
+  "assets": {
+    "linux-amd64": {
+      "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.32/mihomo-linux-amd64-v1-v1.19.32.gz",
+      "sha256": "306f81e723e60ce6b828899a6fe83e1d00e9ecefb2dc8d4d849312a5bc00efdc",
+      "unpacked_sha256": "6de241191ca39f9ac1cd6e3194fc9303c19055d3549c8bdb4ff1349c89173819"
+    }
+  },
+  "source": {
+    "url": "https://codeload.github.com/MetaCubeX/mihomo/tar.gz/refs/tags/v1.19.32",
+    "sha256": "ab130b7fab3893d01aa44c0d39be34a26da716c1d36832fbac9fa054a1d862a0"
+  },
+  "pyyaml": {
+    "version": "6.0.3",
+    "url": "https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz",
+    "sha256": "d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f"
+  }
+}

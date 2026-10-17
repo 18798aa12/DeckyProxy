@@ -1,0 +1,39 @@
+{
+  "name": "decky-proxy",
+  "version": "0.1.0",
+  "description": "A Decky Loader plugin for managing Mihomo on Steam Deck",
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/18798aa12/DeckyProxy.git"
+  },
+  "homepage": "https://github.com/18798aa12/DeckyProxy#readme",
+  "bugs": {
+    "url": "https://github.com/18798aa12/DeckyProxy/issues"
+  },
+  "scripts": {
+    "build": "rollup -c rollup.config.mjs",
+    "watch": "rollup -c rollup.config.mjs -w",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@decky/api": "1.1.3",
+    "react-icons": "5.5.0",
+    "tslib": "2.8.1"
+  },
+  "devDependencies": {
+    "@decky/rollup": "1.0.2",
+    "@decky/ui": "4.11.0",
+    "@testing-library/react": "16.3.0",
+    "@types/react": "19.1.1",
+    "@types/react-dom": "19.1.1",
+    "jsdom": "26.1.0",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "rollup": "4.53.3",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}

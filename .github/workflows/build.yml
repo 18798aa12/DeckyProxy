@@ -1,0 +1,58 @@
+name: Check and package
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.9"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Python test tools
+        run: python -m pip install -r requirements-dev.txt
+      - name: Check frontend
+        run: |
+          pnpm typecheck
+          pnpm test
+          pnpm build
+      - name: Check backend and release tools
+        run: |
+          python -m ruff check main.py py_modules scripts tests
+          python -m pytest --cov=decky_proxy --cov-report=term-missing
+          python scripts/sanitize_release.py --source-only
+      - name: Build verified release and source bundle
+        run: |
+          python scripts/package.py
+          python scripts/verify_release.py
+          python scripts/sanitize_release.py
+      - name: Check the real Linux core without starting TUN
+        run: python scripts/linux_smoke.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeckyProxy-release
+          path: release/*
+          if-no-files-found: error
+          retention-days: 30

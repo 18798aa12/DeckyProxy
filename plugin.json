@@ -1,0 +1,10 @@
+{
+  "name": "DeckyProxy",
+  "author": "DeckyProxy Contributors",
+  "flags": ["root"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["network", "proxy"],
+    "description": "Steam Deck 的 Mihomo 代理管理：订阅、节点切换与 TUN。"
+  }
+}
