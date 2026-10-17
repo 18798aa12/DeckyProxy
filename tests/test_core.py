@@ -231,6 +231,156 @@ async def test_ip_command_json_errors_and_reaping(core, monkeypatch):
                 await core._ip_json("rule", "show")
 
 
+def _mock_ip_tables(core, monkeypatch, *, rules=None, routes=None):
+    commands = []
+    monkeypatch.setattr("decky_proxy.core.shutil.which", lambda *a, **k: "/usr/bin/ip")
+
+    async def spawn(*args, **kwargs):
+        commands.append(args)
+        process = FakeProcess(0)
+        records = rules if "rule" in args else routes
+
+        async def communicate():
+            return json.dumps(records or []).encode(), None
+
+        process.communicate = communicate
+        return process
+
+    monkeypatch.setattr(core, "_spawn", spawn)
+    return commands
+
+
+async def test_ip_json_requests_numeric_identifiers_and_normalizes_table_numbers(core, monkeypatch):
+    routes = [
+        {"table": "19792", "dev": "DeckyProxy", "dst": "default"},
+        {"table": 254, "dev": "wlan0"},
+        {"table": "4294967295", "dev": "other-tun"},
+        {"table": "0", "dev": "lo"},
+    ]
+    commands = _mock_ip_tables(core, monkeypatch, routes=routes)
+    result = await core._ip_json("route", "show", "table", "all")
+    assert result == [
+        {"table": 19792, "dev": "DeckyProxy", "dst": "default"},
+        {"table": 254, "dev": "wlan0"},
+        {"table": 4294967295, "dev": "other-tun"},
+        {"table": 0, "dev": "lo"},
+    ]
+    assert "-j" in commands[0]
+    assert "-N" in commands[0]
+    assert commands[0].index("-N") < commands[0].index("route")
+    assert routes[0]["table"] == "19792"
+
+
+@pytest.mark.parametrize("priority", [0, "0", 19793, "19793", 4294967295, "4294967295"])
+async def test_ip_json_normalizes_bounded_priority_identifiers(core, monkeypatch, priority):
+    rules = [{"table": "19792", "priority": priority, "src": "all"}]
+    _mock_ip_tables(core, monkeypatch, rules=rules)
+    assert await core._ip_json("rule", "show") == [
+        {"table": 19792, "priority": int(priority), "src": "all"}
+    ]
+    assert rules[0]["priority"] == priority
+
+
+@pytest.mark.parametrize("member", [None, True, 19792, "19792", []])
+async def test_ip_json_rejects_non_record_list_members(core, monkeypatch, member):
+    _mock_ip_tables(core, monkeypatch, routes=[{"table": "19792"}, member])
+    with pytest.raises(ProxyError, match="无效数据"):
+        await core._ip_json("route", "show", "table", "all")
+
+
+@pytest.mark.parametrize(
+    "priority", [None, "", "invalid", True, False, "-1", "4294967296", "１９７９３", 1.5, -1, 2**32]
+)
+async def test_ip_json_rejects_malformed_priority_before_preflight(core, monkeypatch, priority):
+    _mock_ip_tables(core, monkeypatch, rules=[{"table": 254, "priority": priority}])
+    with pytest.raises(ProxyError, match="无效数据"):
+        await core._ip_json("rule", "show")
+
+
+@pytest.mark.parametrize(
+    "table",
+    ["main", "-19792", "4294967296", "１９７９２", "١٩٧٩٢", " 19792", "19792 ", "1" * 10000],
+    ids=[
+        "name",
+        "negative",
+        "uint32-overflow",
+        "fullwidth",
+        "arabic",
+        "leading-space",
+        "trailing-space",
+        "large-name",
+    ],
+)
+async def test_ip_json_preserves_non_numeric_table_names_without_owning_them(
+    core, monkeypatch, table
+):
+    monkeypatch.setattr(Path, "exists", lambda path: True)
+    route = {"table": table, "dev": "DeckyProxy"}
+    _mock_ip_tables(core, monkeypatch, routes=[route])
+    assert await core._ip_json("route", "show", "table", "all") == [route]
+    with pytest.raises(ProxyError, match="路由"):
+        await core.assert_ready(True)
+
+
+@pytest.mark.parametrize("table", [19792, "19792"])
+async def test_ready_accepts_owned_route_from_actual_ip_json(core, monkeypatch, table):
+    monkeypatch.setattr(Path, "exists", lambda path: True)
+    _mock_ip_tables(core, monkeypatch, routes=[{"table": table, "dev": "DeckyProxy"}])
+    await core.assert_ready(True)
+
+
+@pytest.mark.parametrize(
+    "routes",
+    [
+        [],
+        [{"table": "19792", "dev": "other-tun"}],
+        [{"table": "19791", "dev": "DeckyProxy"}],
+        [{"table": 254, "dev": "DeckyProxy"}],
+        [{"table": "main", "dev": "DeckyProxy"}],
+        [{"table": "19792"}],
+        [{"dev": "DeckyProxy"}],
+        [{"table": "19792", "dev": "DeckyProxy-extra"}],
+    ],
+)
+async def test_ready_rejects_unrelated_or_incomplete_routes(core, monkeypatch, routes):
+    monkeypatch.setattr(Path, "exists", lambda path: True)
+    _mock_ip_tables(core, monkeypatch, routes=routes)
+    with pytest.raises(ProxyError, match="路由"):
+        await core.assert_ready(True)
+
+
+@pytest.mark.parametrize("conflict_source", ["rules", "routes", "priority"])
+async def test_preflight_rejects_reserved_table_in_iproute2_string_json(
+    core, monkeypatch, conflict_source
+):
+    config = core.runtime / "tun-preflight.json"
+    config.write_text('{"tun":{"enable":true}}')
+    original_exists = Path.exists
+    monkeypatch.setattr("decky_proxy.core.os.geteuid", lambda: 0)
+    monkeypatch.setattr(
+        Path,
+        "exists",
+        lambda path: (
+            True
+            if str(path) == "/dev/net/tun"
+            else False
+            if str(path) == "/sys/class/net/DeckyProxy"
+            else original_exists(path)
+        ),
+    )
+    rules = (
+        [{"table": "19792", "priority": 100}]
+        if conflict_source == "rules"
+        else [{"table": "254", "priority": "19793"}]
+        if conflict_source == "priority"
+        else []
+    )
+    routes = [{"table": "19792", "dev": "other-tun"}] if conflict_source == "routes" else []
+    _mock_ip_tables(core, monkeypatch, rules=rules, routes=routes)
+    with pytest.raises(ProxyError, match="路由表"):
+        await core._preflight(config)
+
+
 async def test_cancel_during_spawn_terminates_owned_child(core, monkeypatch):
     created, release = asyncio.Event(), asyncio.Event()
     process = FakeProcess()

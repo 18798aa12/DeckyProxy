@@ -50,6 +50,8 @@ jobs:
           python scripts/sanitize_release.py
       - name: Check real Linux rules and provider API without TUN
         run: python scripts/linux_smoke.py
+      - name: Check real Linux TUN in isolated network and mount namespaces
+        run: sudo "$(command -v python)" scripts/linux_tun_smoke.py
       - uses: actions/upload-artifact@v4
         with:
           name: DeckyProxy-release

@@ -4,11 +4,11 @@
 
 这是独立项目。安装包面向 **SteamOS / Linux x86_64**；macOS 只用于开发、测试和打包。**尚未完成 Steam Deck 真机验收**，请先阅读[真机检查表](docs/STEAM_DECK_TESTING.md)。
 
-## v0.2.2 功能
+## v0.2.3 功能
 
-v0.2.2 修复原生文件选择器打开时快捷菜单隐藏，导致选中文件后导入请求被丢弃的问题。按钮旁会显示选择、导入及最终结果；失败提示保留到下一次导入，新配置导入后在列表中自动选中。已有活动配置时，点击“使用此配置”后才会切换。
+v0.2.3 修复开启 TUN 后误报“路由未建立”并停止内核的问题：兼容 iproute2 把路由表编号输出成字符串的实际格式，统一按数值检查专用路由与冲突。关闭 TUN 能看到节点时，已有 YAML 已成功导入，升级后无需重新导入。
 
-B 键改为直接处理 Steam 的手柄取消事件，第二次 B 正常传给 Decky。也修复输入框自动恢复焦点后重复拦截 B 的问题；菜单隐藏时不拦截返回，导入完成后在菜单重新打开时恢复焦点。
+保留 v0.2.2 的原生文件导入与 B 键修复：文件选择器隐藏快捷菜单时仍完成导入，结果保留在按钮旁；菜单可见时第一次 B 提示、第二次 B 返回 Decky，输入草稿保持。
 
 - 游戏模式 QAM 面板：启停、TUN 开关、规则 / 全局 / 直连模式、策略组选择和节点测速。
 - 直接选择下载、文档或桌面目录中的 `.yaml` / `.yml` 文件，也可导入公网 HTTPS 订阅或粘贴 YAML；保留原始策略组、规则及其顺序。本地文件导入不受订阅 HTTPS 限制。
@@ -39,26 +39,26 @@ v0.1 没有更新模块，需要手动安装一次 v0.2 ZIP。个人配置保持
 
 GitHub 直连或短链接无法访问时，可尝试以下第三方加速线路；加速站只传输公开安装包；网络可用性取决于运营商。使用同版本 SHA256SUMS 核对安装包，或在 v0.2 内使用发行签名验证的更新。
 
-- [加速下载一（ghfast.top）](https://ghfast.top/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.2/DeckyProxy-0.2.2.zip)
-- [加速下载二（gh-proxy.org）](https://gh-proxy.org/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.2/DeckyProxy-0.2.2.zip)
+- [加速下载一（ghfast.top）](https://ghfast.top/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.3/DeckyProxy-0.2.3.zip)
+- [加速下载二（gh-proxy.org）](https://gh-proxy.org/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.3/DeckyProxy-0.2.3.zip)
 
 下载 ZIP 后可在 Decky 的“从 ZIP 安装插件”入口安装；也可将上述加速链接粘贴到“从 URL 安装插件”。安装 ZIP 已包含内核，无需先从 GitHub 下载内核。
 
-校验值见同次发布的 `SHA256SUMS`。精确版本源码附件随 [v0.2.2 发布](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.2)提供。
+校验值见同次发布的 `SHA256SUMS`。精确版本源码附件随 [v0.2.3 发布](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.3)提供。
 
 ### 原始发布链接
 
 公开测试包可通过 Decky **设置 → 开发者 → 从 URL 安装插件**，粘贴以下链接安装：
 
 ```text
-https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.2/DeckyProxy-0.2.2.zip
+https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.3/DeckyProxy-0.2.3.zip
 ```
 
-也可以在 [GitHub Releases](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.2) 下载 ZIP 后按下面步骤安装。当前版本**未上架官方商店**，原因与条件见[发布说明](docs/PUBLISHING.md)。
+也可以在 [GitHub Releases](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.3) 下载 ZIP 后按下面步骤安装。当前版本**未上架官方商店**，原因与条件见[发布说明](docs/PUBLISHING.md)。
 
 1. 先安装并确认 [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) 正常工作。
 2. **停止其他 Clash / VPN / TUN 代理**，包括 ToMoon、DeckyClash 或桌面模式里运行的代理客户端，避免争用路由和 DNS。
-3. 将 `release/DeckyProxy-0.2.2.zip` 传到 Deck。可先在电脑核对同目录 `SHA256SUMS`：Linux 使用 `sha256sum -c SHA256SUMS`，macOS 使用 `shasum -a 256 -c SHA256SUMS`。
+3. 将 `release/DeckyProxy-0.2.3.zip` 传到 Deck。可先在电脑核对同目录 `SHA256SUMS`：Linux 使用 `sha256sum -c SHA256SUMS`，macOS 使用 `shasum -a 256 -c SHA256SUMS`。
 4. 打开 Decky 设置，启用开发者模式，在“开发者”里的“从 ZIP 安装插件”选择安装包。Decky 版本不同，入口文字可能略有差异；本项目尚未上架插件商店。
 5. 在 QAM 打开 **DeckyProxy**，点击“选择 YAML 文件并导入”，选择先前下载的配置；也可输入名称和公网 HTTPS 订阅，点击“导入配置”。然后选择要使用的配置。
 6. 检查模式和 TUN 设置后，手动打开“启用代理”。通常游戏与 Steam 系统流量需要 TUN；关闭 TUN 时只启动本地 HTTP / SOCKS 混合代理端口 `127.0.0.1:19790`，应用需自行使用该代理。
@@ -104,8 +104,8 @@ python3 -m venv .venv
 
 ```text
 release/
-├── DeckyProxy-0.2.2.zip
-├── DeckyProxy-0.2.2-source.tar.gz
+├── DeckyProxy-0.2.3.zip
+├── DeckyProxy-0.2.3-source.tar.gz
 ├── SHA256SUMS
 ├── update.json       # 发行者单独签名后生成
 └── update.json.sig
@@ -120,6 +120,8 @@ release/
 ```
 
 此检查执行内核版本、配置校验及短时回环 API 检查，确认规则集实际加载；关闭 TUN 和代理监听，不改变主机路由。真实网络接管仍需在 Steam Deck 验收。CI 同样运行前后端检查、打包和 Linux 内核检查。
+
+Linux CI 还运行 `scripts/linux_tun_smoke.py`：以 root 创建独立网络和挂载命名空间，使用合成配置启停真实 TUN，验证策略组、专用路由和策略规则及停止后的清理。测试接口与路由只存在于隔离空间，缺少隔离权限时检查失败，不跳过冒充通过；此检查仍不能替代 Steam Deck 的真实联网验收。
 
 ## 代码与调研
 

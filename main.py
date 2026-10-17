@@ -31,7 +31,7 @@ class Plugin:
             Controller(secret),
             secret,
         )
-        self.service.updates = UpdateManager(Path(decky.DECKY_PLUGIN_DIR), runtime, "0.2.2")
+        self.service.updates = UpdateManager(Path(decky.DECKY_PLUGIN_DIR), runtime, "0.2.3")
         await self.service.updates.recover()
         state = await self.service.get_status()
         if state["auto_start"] and state["update"]["state"] != "installing":

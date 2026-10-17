@@ -17,6 +17,19 @@ from .network import fetch_https
 from .storage import atomic_write, private_directory
 
 
+def _numeric_identifier(value: object) -> object:
+    """iproute2 serializes route tables as strings, even with numeric output."""
+    if (
+        isinstance(value, str)
+        and 0 < len(value) <= 10
+        and value.isascii()
+        and value.isdecimal()
+        and int(value) <= 0xFFFFFFFF
+    ):
+        return int(value)
+    return value
+
+
 class Core:
     def __init__(self, runtime: Path, plugin_dir: Path):
         self.runtime = runtime
@@ -158,6 +171,7 @@ class Core:
         process = await self._spawn(
             ip,
             "-j",
+            "-N",
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
@@ -174,9 +188,22 @@ class Core:
             raise ProxyError("无法检查路由，请先检查系统网络")
         try:
             data = json.loads(output)
-            if not isinstance(data, list):
+            if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
                 raise ValueError
-            return data
+            records = [
+                {
+                    key: _numeric_identifier(value) if key in ("table", "priority") else value
+                    for key, value in row.items()
+                }
+                for row in data
+            ]
+            if any(
+                "priority" in row
+                and (type(row["priority"]) is not int or not 0 <= row["priority"] <= 0xFFFFFFFF)
+                for row in records
+            ):
+                raise ValueError
+            return records
         except ValueError as error:
             raise ProxyError("系统路由检查返回无效数据") from error
 
