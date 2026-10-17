@@ -1,0 +1,10 @@
+IP to ASN Lite database, October 2026
+Copyright DB-IP.com. IP Geolocation by DB-IP: https://db-ip.com
+
+Source: https://db-ip.com/db/download/ip-to-asn-lite
+This database is distributed under the Creative Commons Attribution 4.0
+International license: https://creativecommons.org/licenses/by/4.0/
+Legal code: https://creativecommons.org/licenses/by/4.0/legalcode
+
+DeckyProxy renames the unchanged uncompressed database to ASN.mmdb for Mihomo.
+The SHA256 and original download are recorded in assets/geodata-lock.json.

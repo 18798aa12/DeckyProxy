@@ -6,6 +6,7 @@ import { GroupPanel } from "./GroupPanel";
 import { ProfilePanel } from "./ProfilePanel";
 import { RulePanel } from "./RulePanel";
 import { AutomationPanel } from "./AutomationPanel";
+import { EditingBoundary } from "./EditingBoundary";
 import { backend } from "./rpc";
 import { formatDelay, safeError } from "./state";
 import { styles } from "./styles";
@@ -162,7 +163,7 @@ export function App() {
   const updating = ["preparing", "installing"].includes(status?.update?.state ?? "idle");
   const controlsBusy = busy !== null || updating;
 
-  return <>
+  return <EditingBoundary>
     <div aria-live="polite">
       {busy && <div style={styles.note}>{busy}</div>}
       {notice && <div role="status" style={styles.notice}>{notice}</div>}
@@ -191,5 +192,5 @@ export function App() {
         <div style={styles.note}>首次使用：安装内核 → 导入配置 → 使用配置 → 根据需要开启 TUN → 启用代理。</div>
       </PanelSectionRow>
     </PanelSection>
-  </>;
+  </EditingBoundary>;
 }

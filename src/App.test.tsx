@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
-import { StrictMode, type ReactNode } from "react";
+import { StrictMode, forwardRef, useEffect, useImperativeHandle, useRef, type ReactNode } from "react";
 import type { Status } from "./types";
 
 const { mocks } = vi.hoisted(() => ({ mocks: {
@@ -11,14 +11,31 @@ const { mocks } = vi.hoisted(() => ({ mocks: {
   selectProxy: vi.fn(), testDelay: vi.fn(), installCore: vi.fn(), getDiagnostics: vi.fn(),
   quickAccessVisible: vi.fn(), setSubscriptionInterval: vi.fn(), setUpdatePreferences: vi.fn(),
   checkForUpdates: vi.fn(), installUpdate: vi.fn(), importRuleProvider: vi.fn(),
+  getImportDirectory: vi.fn(), importProfileFile: vi.fn(), openFilePicker: vi.fn(),
 } }));
 
 vi.mock("./rpc", () => ({ backend: mocks }));
-vi.mock("@decky/api", () => ({ useQuickAccessVisible: mocks.quickAccessVisible }));
+vi.mock("@decky/api", () => ({ useQuickAccessVisible: mocks.quickAccessVisible, openFilePicker: mocks.openFilePicker, FileSelectionType: { FILE: 0 } }));
 vi.mock("@decky/ui", () => ({
+  GamepadButton: { CANCEL: 2 },
   PanelSection: ({ title, children }: { title: string; children: ReactNode }) => <section aria-label={title}>{children}</section>,
   PanelSectionRow: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  Focusable: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Focusable: forwardRef<HTMLDivElement, { children: ReactNode; onCancelButton?: (event: CustomEvent) => void; onButtonDown?: (event: CustomEvent<{ button: number }>) => void; onGamepadDirection?: () => void; onActivate?: () => void; tabIndex?: number; onKeyDown?: React.KeyboardEventHandler<HTMLDivElement> }>(function MockFocusable({ children, onCancelButton, onButtonDown, onGamepadDirection: _onGamepadDirection, onActivate: _onActivate, ...props }, ref) {
+    const local = useRef<HTMLDivElement>(null);
+    useImperativeHandle(ref, () => local.current as HTMLDivElement);
+    useEffect(() => {
+      const element = local.current;
+      const listener = (event: Event): void => { onCancelButton?.(event as CustomEvent); };
+      const buttonListener = (event: Event): void => { onButtonDown?.(event as CustomEvent<{ button: number }>); };
+      element?.addEventListener("decky-test-cancel", listener);
+      element?.addEventListener("decky-test-button", buttonListener);
+      return () => {
+        element?.removeEventListener("decky-test-cancel", listener);
+        element?.removeEventListener("decky-test-button", buttonListener);
+      };
+    }, [onCancelButton, onButtonDown]);
+    return <div ref={local} {...props}>{children}</div>;
+  }),
   Field: ({ label, description, children }: { label: string; description: string; children: ReactNode }) => <div>{label}{description}{children}</div>,
   ButtonItem: ({ children, disabled, onClick }: { children: ReactNode; disabled: boolean; onClick: () => void }) => <button disabled={disabled} onClick={onClick}>{children}</button>,
   ToggleField: ({ label, checked, disabled, onChange }: { label: string; checked: boolean; disabled: boolean; onChange: (checked: boolean) => void }) => <label>{label}<input aria-label={label} type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /></label>,
@@ -27,6 +44,7 @@ vi.mock("@decky/ui", () => ({
 }));
 
 import { App } from "./App";
+import { clearProfileDraft } from "./profileDraft";
 
 const status: Status = {
   running: false, core_installed: true, core_version: "v1.19.0", platform_supported: true,
@@ -36,7 +54,7 @@ const status: Status = {
 };
 
 beforeEach(() => { mocks.quickAccessVisible.mockReturnValue(true); });
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); });
+afterEach(() => { cleanup(); clearProfileDraft(); vi.useRealTimers(); vi.resetAllMocks(); });
 
 describe("QAM proxy controls", () => {
   it("loads with proxy off, then applies the start action result", async () => {
@@ -138,6 +156,183 @@ describe("QAM proxy controls", () => {
     await waitFor(() => expect(mocks.testDelay).toHaveBeenCalledWith("香港"));
     expect(await screen.findByText("香港：72 ms")).toBeTruthy();
     expect(screen.getByText("延迟为测试站点的往返时间，无法代表游戏服务器延迟。")).toBeTruthy();
+  });
+});
+
+describe("local YAML files and back navigation", () => {
+  const cancel = (element: HTMLElement): CustomEvent => {
+    const event = new CustomEvent("decky-test-cancel", { bubbles: true, cancelable: true });
+    fireEvent(element, event);
+    return event;
+  };
+
+  it("opens the native YAML picker in the discovered download directory and imports once", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    mocks.getImportDirectory.mockResolvedValue("/home/deck/下载");
+    mocks.openFilePicker.mockResolvedValue({ path: "/home/deck/下载/my-clash.yaml", realpath: "/home/deck/下载/my-clash.yaml" });
+    mocks.importProfileFile.mockResolvedValue(status);
+    render(<App />);
+    fireEvent.click(await screen.findByText("选择 YAML 文件并导入"));
+    await waitFor(() => expect(mocks.openFilePicker).toHaveBeenCalledWith(0, "/home/deck/下载", true, true, undefined, ["yaml", "yml"], false, false));
+    await waitFor(() => expect(mocks.importProfileFile).toHaveBeenCalledWith("my-clash", "/home/deck/下载/my-clash.yaml"));
+    expect(mocks.importProfileFile).toHaveBeenCalledTimes(1);
+    expect(mocks.importProfile).not.toHaveBeenCalled();
+  });
+
+  it("keeps a supplied profile name for a selected local file", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    mocks.getImportDirectory.mockResolvedValue("/home/deck/Downloads");
+    mocks.openFilePicker.mockResolvedValue({ path: "/home/deck/Downloads/clash.yml", realpath: "/home/deck/Downloads/clash.yml" });
+    mocks.importProfileFile.mockResolvedValue(status);
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText("配置名称"), { target: { value: "我的游戏线路" } });
+    fireEvent.click(screen.getByText("选择 YAML 文件并导入"));
+    await waitFor(() => expect(mocks.importProfileFile).toHaveBeenCalledWith("我的游戏线路", "/home/deck/Downloads/clash.yml"));
+  });
+
+  it("silently cancels the picker, prevents duplicate opening, and retains drafts after reopening", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    mocks.getImportDirectory.mockResolvedValue("/home/deck/Downloads");
+    let rejectPicker: (reason: unknown) => void = () => undefined;
+    mocks.openFilePicker.mockImplementation(() => new Promise((_, reject) => { rejectPicker = reject; }));
+    const view = render(<App />);
+    fireEvent.change(await screen.findByLabelText("配置名称"), { target: { value: "暂存线路" } });
+    fireEvent.change(screen.getByLabelText("订阅地址"), { target: { value: "https://provider.example/sub?token=secret" } });
+    const button = screen.getByText("选择 YAML 文件并导入");
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await waitFor(() => expect(mocks.openFilePicker).toHaveBeenCalledTimes(1));
+    await act(async () => { rejectPicker("User canceled"); });
+    expect(mocks.importProfileFile).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.activeElement?.contains(button)).toBe(true);
+    view.unmount();
+    render(<App />);
+    expect((await screen.findByLabelText("配置名称") as HTMLInputElement).value).toBe("暂存线路");
+    expect((screen.getByLabelText("订阅地址") as HTMLInputElement).value).toBe("https://provider.example/sub?token=secret");
+  });
+
+  it("shows picker errors and keeps the draft for retry", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    mocks.getImportDirectory.mockResolvedValue("/home/deck/Downloads");
+    mocks.openFilePicker.mockRejectedValue(new Error("文件选择失败"));
+    render(<App />);
+    fireEvent.click(await screen.findByText("选择 YAML 文件并导入"));
+    expect(await screen.findByText("文件选择失败")).toBeTruthy();
+    expect(mocks.importProfileFile).not.toHaveBeenCalled();
+  });
+
+  it("does not import a late picker result after the page unmounts", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    mocks.getImportDirectory.mockResolvedValue("/home/deck/Downloads");
+    let choose: (file: { path: string; realpath: string }) => void = () => undefined;
+    mocks.openFilePicker.mockImplementation(() => new Promise((resolve) => { choose = resolve; }));
+    const view = render(<App />);
+    fireEvent.click(await screen.findByText("选择 YAML 文件并导入"));
+    await waitFor(() => expect(mocks.openFilePicker).toHaveBeenCalledTimes(1));
+    view.unmount();
+    await act(async () => { choose({ path: "/home/deck/Downloads/clash.yaml", realpath: "/home/deck/Downloads/clash.yaml" }); });
+    expect(mocks.importProfileFile).not.toHaveBeenCalled();
+  });
+
+  it("uses B to finish text editing, then requires two root B presses to leave", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    const view = render(<App />);
+    fireEvent.change(await screen.findByLabelText("导入方式"), { target: { value: "yaml" } });
+    const editor = screen.getByLabelText("YAML 内容");
+    fireEvent.change(editor, { target: { value: "proxies: []\n" } });
+    editor.focus();
+    const outerBack = vi.fn();
+    view.container.addEventListener("decky-test-cancel", outerBack);
+    const first = cancel(editor);
+    expect(first.defaultPrevented).toBe(true);
+    expect(document.activeElement).not.toBe(editor);
+    expect((editor as HTMLTextAreaElement).value).toBe("proxies: []\n");
+    expect(outerBack).not.toHaveBeenCalled();
+    expect(screen.queryByText("再次按 B 返回 Decky")).toBeNull();
+    const second = cancel(document.activeElement as HTMLElement);
+    expect(second.defaultPrevented).toBe(true);
+    expect(screen.getByText("再次按 B 返回 Decky")).toBeTruthy();
+    expect(outerBack).not.toHaveBeenCalled();
+    const third = cancel(document.activeElement as HTMLElement);
+    expect(third.defaultPrevented).toBe(false);
+    expect(outerBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the plugin open after the first root B and lets a second B return to Decky", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    const view = render(<App />);
+    const control = await screen.findByText("刷新状态");
+    const outerBack = vi.fn();
+    view.container.addEventListener("decky-test-cancel", outerBack);
+    expect(cancel(control).defaultPrevented).toBe(true);
+    expect(screen.getByText("再次按 B 返回 Decky")).toBeTruthy();
+    expect(outerBack).not.toHaveBeenCalled();
+    expect(cancel(control).defaultPrevented).toBe(false);
+    expect(outerBack).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("再次按 B 返回 Decky")).toBeNull();
+  });
+
+  it("expires the root B confirmation after two seconds", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    render(<App />);
+    const control = await screen.findByText("刷新状态");
+    vi.useFakeTimers();
+    expect(cancel(control).defaultPrevented).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2001); });
+    expect(screen.queryByText("再次按 B 返回 Decky")).toBeNull();
+    expect(cancel(control).defaultPrevented).toBe(true);
+  });
+
+  it("does not treat a held B repeat as a second press", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    render(<App />);
+    const control = await screen.findByText("刷新状态");
+    cancel(control);
+    const repeated = new CustomEvent("decky-test-cancel", { bubbles: true, cancelable: true, detail: { is_repeat: true } });
+    fireEvent(control, repeated);
+    expect(repeated.defaultPrevented).toBe(true);
+    expect(screen.getByText("再次按 B 返回 Decky")).toBeTruthy();
+    expect(cancel(control).defaultPrevented).toBe(false);
+  });
+
+  it("disarms root B after another button or click and after reopening the page", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    const view = render(<App />);
+    const control = await screen.findByText("刷新状态");
+    cancel(control);
+    fireEvent(control, new CustomEvent("decky-test-button", { bubbles: true, detail: { button: 1 } }));
+    expect(screen.queryByText("再次按 B 返回 Decky")).toBeNull();
+    expect(cancel(control).defaultPrevented).toBe(true);
+    fireEvent.click(screen.getByLabelText("配置"));
+    expect(screen.queryByText("再次按 B 返回 Decky")).toBeNull();
+    expect(cancel(control).defaultPrevented).toBe(true);
+    view.unmount();
+    render(<App />);
+    const reopened = await screen.findByText("刷新状态");
+    expect(screen.queryByText("再次按 B 返回 Decky")).toBeNull();
+    expect(cancel(reopened).defaultPrevented).toBe(true);
+  });
+
+  it("allows Escape to finish editing an address without clearing it", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    render(<App />);
+    const field = await screen.findByLabelText("订阅地址");
+    fireEvent.change(field, { target: { value: "https://provider.example/sub" } });
+    field.focus();
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(document.activeElement).not.toBe(field);
+    expect((field as HTMLInputElement).value).toBe("https://provider.example/sub");
+  });
+
+  it("uses B to dismiss deletion confirmation without leaving the plugin", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    render(<App />);
+    fireEvent.click(await screen.findByText("删除此配置"));
+    const confirmation = screen.getByText("确认删除“我的线路”");
+    expect(cancel(confirmation).defaultPrevented).toBe(true);
+    expect(screen.queryByText("确认删除“我的线路”")).toBeNull();
+    expect(mocks.deleteProfile).not.toHaveBeenCalled();
   });
 });
 
@@ -269,6 +464,15 @@ describe("v0.2 rules and maintenance", () => {
     } });
     render(<App />);
     expect(await screen.findByText(/旧版配置只保存了节点/)).toBeTruthy();
+  });
+
+  it("reports ruleset format corrections without exposing their URLs", async () => {
+    mocks.getStatus.mockResolvedValue({ ...status, active_profile_summary: {
+      source_rules: true, rules: 26, groups: 4, rule_providers: 2, legacy: false,
+      normalized_rule_providers: 1,
+    } });
+    render(<App />);
+    expect(await screen.findByText("已按实际内容修正 1 个规则集格式")).toBeTruthy();
   });
 
   it("saves a subscription interval as hours", async () => {

@@ -1,6 +1,6 @@
 {
   "name": "decky-proxy",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A Decky Loader plugin for managing Mihomo on Steam Deck",
   "type": "module",
   "license": "GPL-3.0-only",

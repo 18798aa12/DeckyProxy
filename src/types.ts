@@ -8,6 +8,7 @@ export interface ProfileSummary {
   readonly rules: number;
   readonly groups: number;
   readonly rule_providers: number;
+  readonly normalized_rule_providers?: number;
   readonly legacy: boolean;
 }
 

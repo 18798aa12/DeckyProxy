@@ -6,6 +6,7 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from .configuration import prepare_profile, prepare_rule_provider
@@ -40,6 +41,16 @@ def budget_download(download: Callable[[str], bytes], cancelled: threading.Event
 
 
 class ProfileOperations:
+    async def get_import_directory(self) -> str:
+        return await asyncio.to_thread(self.files.start_directory)
+
+    async def import_profile_file(self, name: str, path: str) -> dict:
+        if not isinstance(name, str):
+            raise ProxyError("配置名称无效")
+        content = await asyncio.to_thread(self.files.read, path)
+        label = name if name.strip() else Path(path).stem[:64]
+        return await self.import_profile(label, "", content)
+
     def _profile(self, state: dict, profile_id: str) -> dict:
         self.store.profile_path(profile_id)
         for profile in state["profiles"]:
@@ -57,6 +68,7 @@ class ProfileOperations:
             "rules": len(profile.get("rules") or []),
             "groups": len(profile.get("groups") or []),
             "rule_providers": len(profile.get("rule_providers") or {}),
+            "normalized_rule_providers": profile.get("normalized_rule_providers", 0),
             "legacy": profile.get("schema_version") != 2,
         }
 

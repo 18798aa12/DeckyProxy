@@ -24,9 +24,24 @@ async def test_full_configuration_keeps_rules_groups_and_safe_summary(service):
     summary = state["active_profile_summary"]
     assert summary["source_rules"] and not summary["legacy"]
     assert summary["rules"] == 2 and summary["groups"] == 1
+    assert summary["normalized_rule_providers"] == 0
     await service.start_proxy()
     assert service.core.config["rules"] == ["DOMAIN-SUFFIX,example.org,MyPolicy", "MATCH,DIRECT"]
     assert service.core.config["proxy-groups"][0]["name"] == "MyPolicy"
+
+
+async def test_summary_reports_ruleset_format_corrections(service):
+    service.download = lambda _: b"payload: [example.org, +.example.net]"
+    state = await service.import_profile(
+        "normalized", "", FULL + """
+rule-providers:
+  domains:
+    type: http
+    url: https://example.com/rules
+    behavior: classical
+"""
+    )
+    assert state["active_profile_summary"]["normalized_rule_providers"] == 1
 
 
 async def test_custom_rules_survive_subscription_refresh_and_failed_download(service):
@@ -122,8 +137,9 @@ async def test_refresh_prunes_obsolete_cache_after_success_and_validation_failur
     assert set((service.runtime / "providers").iterdir()) == after
 
 
-async def test_asn_rules_fail_clearly_without_unmanaged_core_download(service):
-    with pytest.raises(ProxyError, match="ASN"):
-        await service.import_profile(
-            "asn", "", FULL.replace("DOMAIN-SUFFIX,example.org", "IP-ASN,123")
-        )
+async def test_asn_rules_are_preserved_for_offline_database(service):
+    state = await service.import_profile(
+        "asn", "", FULL.replace("DOMAIN-SUFFIX,example.org", "IP-ASN,123")
+    )
+    profile = service.store.read_profile(state["active_profile_id"])
+    assert profile["rules"][0] == "IP-ASN,123,MyPolicy"

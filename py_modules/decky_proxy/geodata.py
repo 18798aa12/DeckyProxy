@@ -12,14 +12,14 @@ from .storage import atomic_write
 def prepare_geodata(plugin: Path, runtime: Path, config: dict) -> None:
     lock_path = plugin / "assets" / "geodata-lock.json"
     if not lock_path.exists():
-        if re.search(r"GEO(?:IP|SITE),", json.dumps(config), re.IGNORECASE):
+        if re.search(r"(?:GEO(?:IP|SITE)|(?:SRC-)?IP-ASN),", json.dumps(config), re.IGNORECASE):
             raise ProxyError("地理规则数据库缺失，请安装完整新版 ZIP")
         return
     try:
         if lock_path.is_symlink():
             raise ValueError
         lock = json.loads(lock_path.read_text())
-        for name in ("geoip.dat", "geosite.dat"):
+        for name in ("geoip.dat", "geosite.dat", "ASN.mmdb"):
             digest = lock["files"][name]["sha256"]
             if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
                 raise ValueError

@@ -55,6 +55,8 @@ async def test_every_rpc_matches_backend_contract(plugin):
     calls = {
         "get_status": (),
         "import_profile": ("name", "url", "text"),
+        "get_import_directory": (),
+        "import_profile_file": ("name", "/home/deck/Downloads/clash.yaml"),
         "refresh_profile": ("id",),
         "activate_profile": ("id",),
         "delete_profile": ("id",),

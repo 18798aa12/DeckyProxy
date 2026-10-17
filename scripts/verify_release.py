@@ -35,7 +35,9 @@ def verify_zip(path: Path) -> dict:
             "assets/update-allowed-signers",
             "bin/geodata/geoip.dat",
             "bin/geodata/geosite.dat",
+            "bin/geodata/ASN.mmdb",
             "licenses/GEO-DATA-LICENSE",
+            "licenses/DBIP-DATA-LICENSE",
             "LICENSE",
             "THIRD_PARTY_NOTICES.md",
             "README.md",
@@ -69,7 +71,7 @@ def verify_zip(path: Path) -> dict:
         core = archive.read("DeckyProxy/bin/mihomo")
         geo = json.loads(archive.read("DeckyProxy/assets/geodata-lock.json"))
         for name, spec in geo["files"].items():
-            require(name in {"geoip.dat", "geosite.dat"}, "Unexpected GEO data file")
+            require(name in {"geoip.dat", "geosite.dat", "ASN.mmdb"}, "Unexpected GEO data file")
             require(
                 hashlib.sha256(archive.read(f"DeckyProxy/bin/geodata/{name}")).hexdigest()
                 == spec["sha256"],

@@ -4,6 +4,8 @@ import type { Group, ProxyMode, Result, RuleBehavior, RuleFormat, Status } from 
 
 const getStatus = callable<[], Result<Status>>("get_status");
 const importProfile = callable<[name: string, url: string, content: string], Result<Status>>("import_profile");
+const importProfileFile = callable<[name: string, path: string], Result<Status>>("import_profile_file");
+const getImportDirectory = callable<[], Result<string>>("get_import_directory");
 const refreshProfile = callable<[profileId: string], Result<Status>>("refresh_profile");
 const activateProfile = callable<[profileId: string], Result<Status>>("activate_profile");
 const deleteProfile = callable<[profileId: string], Result<Status>>("delete_profile");
@@ -26,6 +28,8 @@ const importRuleProvider = callable<[name: string, url: string, behavior: RuleBe
 export const backend = {
   getStatus: async (): Promise<Status> => unwrap(await getStatus()),
   importProfile: async (name: string, url: string, content: string): Promise<Status> => unwrap(await importProfile(name, url, content)),
+  importProfileFile: async (name: string, path: string): Promise<Status> => unwrap(await importProfileFile(name, path)),
+  getImportDirectory: async (): Promise<string> => unwrap(await getImportDirectory()),
   refreshProfile: async (id: string): Promise<Status> => unwrap(await refreshProfile(id)),
   activateProfile: async (id: string): Promise<Status> => unwrap(await activateProfile(id)),
   deleteProfile: async (id: string): Promise<Status> => unwrap(await deleteProfile(id)),

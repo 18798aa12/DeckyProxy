@@ -31,7 +31,7 @@ class Plugin:
             Controller(secret),
             secret,
         )
-        self.service.updates = UpdateManager(Path(decky.DECKY_PLUGIN_DIR), runtime, "0.2.0")
+        self.service.updates = UpdateManager(Path(decky.DECKY_PLUGIN_DIR), runtime, "0.2.1")
         await self.service.updates.recover()
         state = await self.service.get_status()
         if state["auto_start"] and state["update"]["state"] != "installing":
@@ -70,6 +70,12 @@ class Plugin:
 
     async def import_profile(self, name: str, url: str, content: str) -> dict:
         return await self._call("import_profile", name, url, content)
+
+    async def get_import_directory(self) -> dict:
+        return await self._call("get_import_directory")
+
+    async def import_profile_file(self, name: str, path: str) -> dict:
+        return await self._call("import_profile_file", name, path)
 
     async def refresh_profile(self, profile_id: str) -> dict:
         return await self._call("refresh_profile", profile_id)

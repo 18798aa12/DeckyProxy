@@ -101,6 +101,10 @@ def stage_plugin(destination: Path) -> tuple[Path, Path]:
     for path in geodata_files:
         atomic_bytes(destination / "bin" / "geodata" / path.name, path.read_bytes())
     atomic_bytes(destination / "licenses" / "GEO-DATA-LICENSE", (ROOT / "LICENSE").read_bytes())
+    atomic_bytes(
+        destination / "licenses" / "DBIP-DATA-LICENSE",
+        (ROOT / "assets/licenses/DBIP-DATA-LICENSE.txt").read_bytes(),
+    )
     yaml_source = vendor_yaml(destination)
     atomic_bytes(destination / "licenses" / "MIHOMO-LICENSE", (ROOT / "LICENSE").read_bytes())
     for name, module in frontend_modules().items():

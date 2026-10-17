@@ -11,13 +11,14 @@ def test_geodata_copies_verified_bundled_files_without_network(tmp_path):
     (plugin / "assets").mkdir(parents=True)
     (plugin / "bin" / "geodata").mkdir(parents=True)
     files = {}
-    for name in ("geoip.dat", "geosite.dat"):
+    for name in ("geoip.dat", "geosite.dat", "ASN.mmdb"):
         data = ("fixture " + name).encode()
         (plugin / "bin" / "geodata" / name).write_bytes(data)
         files[name] = {"sha256": hashlib.sha256(data).hexdigest()}
     (plugin / "assets" / "geodata-lock.json").write_text(json.dumps({"files": files}))
     prepare_geodata(plugin, runtime, {"rules": ["GEOSITE,cn,DIRECT"]})
     assert (runtime / "geosite.dat").read_bytes() == b"fixture geosite.dat"
+    assert (runtime / "ASN.mmdb").read_bytes() == b"fixture ASN.mmdb"
     (runtime / "geoip.dat").write_bytes(b"corrupt cache")
     prepare_geodata(plugin, runtime, {})
     assert (runtime / "geoip.dat").read_bytes() == b"fixture geoip.dat"

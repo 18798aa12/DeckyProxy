@@ -3,10 +3,13 @@ import copy
 import re
 
 from .errors import ProxyError
+from .safe_regex import filter_match, normalize_filters, validate_filter
 
 BUILTINS = {"DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"}
 HEALTH_URL = "https://www.gstatic.com/generate_204"
 GROUP_TYPES = {"select", "url-test", "fallback", "load-balance"}
+RUNTIME_TYPES = {"ss": "shadowsocks", "ssr": "shadowsocksr", "select": "selector",
+                 "url-test": "urltest", "load-balance": "loadbalance"}
 MATCHERS = {
     "DOMAIN", "DOMAIN-SUFFIX", "DOMAIN-KEYWORD", "DOMAIN-REGEX", "GEOSITE", "GEOIP",
     "IP-CIDR", "IP-CIDR6", "IP-SUFFIX", "IP-ASN", "SRC-IP-CIDR", "SRC-IP-SUFFIX",
@@ -23,11 +26,51 @@ def valid_name(value: object, kind: str = "名称") -> str:
     return value
 
 
+def validate_filter_setting(pattern: object) -> str:
+    if (not isinstance(pattern, str) or re.search(r"[\x00-\x1f\x7f]", pattern)
+            or pattern.count("`") >= 16):
+        raise ProxyError("节点筛选表达式为空、过长或包含不支持的数据")
+    if len(pattern) > 1024:
+        return validate_filter(pattern)  # Only canonical escaped literal sets may be larger.
+    for expression in pattern.split("`"):
+        validate_filter(expression)
+    return pattern
+
+
+def normalize_filter_fields(values: list[dict], names: list[str]) -> list[dict]:
+    patterns = [raw[key] for raw in values for key in ("filter", "exclude-filter") if key in raw]
+    mapping = normalize_filters(patterns, names)
+    return [{**raw, **{key: mapping[raw[key]] for key in ("filter", "exclude-filter")
+                      if key in raw}}
+            for raw in values]
+
+
+def _filter_matches(pattern: str, name: str) -> bool:
+    # Mihomo treats backtick-separated patterns as independent alternatives.
+    return any(filter_match(expression, name) for expression in pattern.split("`"))
+
+
+def filtered_names(types: dict[str, str], settings: dict, *, inclusion: bool = True,
+                   runtime_types: bool = False) -> set[str]:
+    included, excluded = settings.get("filter", ""), settings.get("exclude-filter", "")
+    excluded_types = {kind.casefold() for kind in settings.get("exclude-type", "").split("|")}
+    return {name for name, kind in types.items()
+            if (not inclusion or not included or _filter_matches(included, name))
+            and (not excluded or not _filter_matches(excluded, name))
+            and (RUNTIME_TYPES.get(kind, kind) if runtime_types else kind).casefold()
+            not in excluded_types}
+
+
 def normalize_groups(value: object, nodes: list[dict], providers: dict) -> list[dict]:
     if not isinstance(value, list) or len(value) > 256:
         raise ProxyError("策略组列表无效，最多支持 256 个策略组")
     groups = []
     node_names = {node["name"] for node in nodes}
+    if any(not isinstance(raw, dict) for raw in value):
+        raise ProxyError("策略组必须是对象")
+    filter_names = node_names | BUILTINS | {
+        valid_name(raw.get("name"), "策略组名称") for raw in value}
+    value = normalize_filter_fields(value, sorted(filter_names))
     names: set[str] = set()
     for raw in value:
         if not isinstance(raw, dict):
@@ -59,9 +102,15 @@ def normalize_groups(value: object, nodes: list[dict], providers: dict) -> list[
                 group[key] = raw[key]
         for key in ("filter", "exclude-filter", "exclude-type", "expected-status"):
             if key in raw:
-                if not isinstance(raw[key], str) or len(raw[key]) > 1024:
+                value = raw[key]
+                # YAML commonly writes a single expected HTTP status as 204.
+                if key == "expected-status" and type(value) is int and 100 <= value <= 599:
+                    value = str(value)
+                if key in ("filter", "exclude-filter"):
+                    value = validate_filter_setting(value)
+                elif not isinstance(value, str) or len(value) > 1024:
                     raise ProxyError("策略组筛选条件无效")
-                group[key] = raw[key]
+                group[key] = value
         if "strategy" in raw:
             if raw["strategy"] not in ("consistent-hashing", "round-robin", "sticky-sessions"):
                 raise ProxyError("负载均衡策略无效")
@@ -82,29 +131,57 @@ def normalize_groups(value: object, nodes: list[dict], providers: dict) -> list[
                 group.get(key) for key in ("include-all", "include-all-proxies",
                                           "include-all-providers"))):
             raise ProxyError("策略组没有可用节点或 provider")
-    adjacency = {group["name"]: [target for target in group.get("proxies", [])
-                                 if target in names] for group in groups}
-    _reject_cycles(adjacency)
     return copy.deepcopy(groups)
 
 
 def _reject_cycles(adjacency: dict[str, list[str]]) -> None:
-    visiting: set[str] = set()
     visited: set[str] = set()
-
-    def visit(name: str) -> None:
-        if name in visiting:
-            raise ProxyError("策略组存在循环引用")
-        if name in visited:
-            return
-        visiting.add(name)
-        for target in adjacency[name]:
-            visit(target)
-        visiting.remove(name)
-        visited.add(name)
-
     for name in adjacency:
-        visit(name)
+        active: set[str] = set()
+        stack = [(name, False)]
+        while stack:
+            target, leaving = stack.pop()
+            if leaving:
+                active.remove(target)
+                visited.add(target)
+            elif target in active:
+                raise ProxyError("节点或策略组存在循环引用")
+            elif target not in visited:
+                active.add(target)
+                stack.append((target, True))
+                stack.extend((child, False) for child in reversed(adjacency[target]))
+
+
+def validate_dialer_graph(nodes: list[dict], groups: list[dict],
+                          provider_members: dict[str, set[str]], inline_names: set[str]) -> None:
+    """Every possible group selection must yield an acyclic dialing chain."""
+    external = set().union(*provider_members.values()) if provider_members else set()
+    active_nodes = inline_names | external
+    names = active_nodes | {group["name"] for group in groups}
+    types = {item["name"]: item["type"] for item in [*nodes, *groups]}
+    adjacency: dict[str, list[str]] = {}
+    for node in nodes:
+        if node["name"] not in active_nodes:
+            continue
+        target = node.get("dialer-proxy")
+        if target is not None and target not in names | {"DIRECT"}:
+            raise ProxyError("链式拨号引用了不存在或不支持的节点/策略组")
+        adjacency[node["name"]] = [target] if target in names else []
+    for group in groups:
+        targets = set(group.get("proxies", [])) & names  # Explicit entries bypass `filter`.
+        dynamic: set[str] = set()
+        use = provider_members if group.get("include-all") or group.get(
+            "include-all-providers") else group.get("use", [])
+        for provider in use:
+            dynamic |= provider_members[provider]
+        targets |= filtered_names({name: types[name] for name in dynamic}, group,
+                                  runtime_types=True)
+        if group.get("include-all") or group.get("include-all-proxies"):
+            targets |= filtered_names({name: types[name] for name in inline_names}, group,
+                                      runtime_types=True)
+        adjacency[group["name"]] = sorted(filtered_names(
+            {name: types[name] for name in targets}, group, inclusion=False, runtime_types=True))
+    _reject_cycles(adjacency)
 
 
 def _split_rule(value: str) -> list[str]:
@@ -131,7 +208,10 @@ def _condition(fields: list[str], providers: set[str], depth: int = 0) -> None:
         raise ProxyError("规则为空或嵌套过深")
     rule_type = fields[0]
     if rule_type in ("IP-ASN", "SRC-IP-ASN"):
-        raise ProxyError("暂不支持 ASN 规则：离线数据库未包含 ASN，请改用 GEOIP/IP-CIDR")
+        if (len(fields) != 2 or not re.fullmatch(r"[0-9]{1,10}", fields[1])
+                or not 1 <= int(fields[1]) <= 4294967295):
+            raise ProxyError("ASN 编号必须是 1 到 4294967295 的整数")
+        return
     if rule_type in ("AND", "OR", "NOT"):
         if len(fields) != 2 or not (fields[1].startswith("(") and fields[1].endswith(")")):
             raise ProxyError("逻辑规则格式无效")
@@ -164,6 +244,14 @@ def validate_rules(value: object, targets: set[str], providers: set[str],
         fields = _split_rule(rule)
         if fields[-1] == "no-resolve":
             fields = fields[:-1]
+        if classical and len(fields) > 2 and fields[0] not in ("AND", "OR", "NOT"):
+            # Mihomo treats all fields after a classical matcher's payload as
+            # parameters. Public Surge-style lists often leave a redundant
+            # builtin policy there; the RULE-SET's target still owns routing.
+            if any(flag.upper() not in BUILTINS and flag not in ("src", "no-resolve")
+                   for flag in fields[2:]):
+                raise ProxyError("经典规则集包含不支持的附加参数")
+            fields = fields[:2]
         if not classical:
             if len(fields) < 2 or fields[-1] not in targets | BUILTINS:
                 raise ProxyError("规则引用了不存在的节点或策略组")

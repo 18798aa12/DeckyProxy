@@ -12,7 +12,13 @@ import yaml
 from .errors import ProxyError
 from .mrs import validate_mrs
 from .network import validate_url
-from .profile_rules import HEALTH_URL, valid_name, validate_rules
+from .profile_rules import (
+    HEALTH_URL,
+    normalize_filter_fields,
+    valid_name,
+    validate_filter_setting,
+    validate_rules,
+)
 from .profile_yaml import MAX_BYTES, load_yaml
 from .storage import atomic_write, private_directory
 
@@ -50,6 +56,40 @@ def _mapping(value: object, limit: int) -> dict:
     return value
 
 
+def _download_options(raw: dict) -> None:
+    if raw.get("proxy", "DIRECT") != "DIRECT":
+        raise ProxyError("provider 下载目前仅支持 DIRECT，请移除下载代理设置")
+    if raw.get("headers"):
+        raise ProxyError("provider 请使用 header 字段，仅支持 Clash User-Agent")
+    headers = raw.get("header", {})
+    if not isinstance(headers, dict):
+        raise ProxyError("provider header 必须是对象")
+    for key, values in headers.items():
+        if (not isinstance(key, str) or key.lower() != "user-agent"
+                or not isinstance(values, list) or len(values) != 1
+                or not isinstance(values[0], str) or len(values[0]) > 256
+                or not re.match(r"(?i)clash(?:\.meta|meta|forandroid|forwindows|verge)?(?:/|\s|$)",
+                                values[0])
+                or re.search(r"[^\x20-\x7e]", values[0])):
+            raise ProxyError("provider 仅支持单个 Clash User-Agent，请移除其他自定义请求头")
+    # All imports already use clash.meta/DeckyProxy as their User-Agent. The
+    # accepted equivalent Clash header never passes through into root config.
+
+
+def provider_filters(raw: dict) -> dict:
+    result = {}
+    for key in ("filter", "exclude-filter", "exclude-type"):
+        if key in raw:
+            value = raw[key]
+            if key in ("filter", "exclude-filter"):
+                value = validate_filter_setting(value)
+            elif (not isinstance(value, str) or len(value) > 1024
+                    or re.search(r"[\x00-\x1f\x7f]", value)):
+                raise ProxyError("节点 provider 筛选条件无效")
+            result[key] = value
+    return result
+
+
 def proxy_providers(value: object, download: Download) -> tuple[dict, list[dict], dict]:
     from .configuration import validate_nodes
 
@@ -59,8 +99,7 @@ def proxy_providers(value: object, download: Download) -> tuple[dict, list[dict]
             raise ProxyError("节点 provider 必须是对象")
         kind = raw.get("type")
         if kind == "http":
-            if raw.get("header") or raw.get("headers"):
-                raise ProxyError("暂不支持带自定义请求头的节点 provider，请使用 HTTPS 订阅 URL")
+            _download_options(raw)
             content = load_yaml(decode_text(fetch_payload(raw.get("url"), download)))
             if not isinstance(content, dict) or content.get("proxy-providers"):
                 raise ProxyError("节点 provider 必须直接包含 proxies，不支持嵌套 provider")
@@ -71,9 +110,10 @@ def proxy_providers(value: object, download: Download) -> tuple[dict, list[dict]
             raise ProxyError("节点 provider 仅支持 HTTPS http 或 inline，不支持本地文件")
         if not nodes:
             raise ProxyError("节点 provider 中没有可用节点")
+        raw = normalize_filter_fields([raw], [node["name"] for node in nodes])[0]
         payload = json.dumps({"proxies": nodes}, ensure_ascii=False).encode()
         path, encoded = file_resource(payload, "yaml")
-        provider = {"type": "file", "path": path}
+        provider = {"type": "file", "path": path, **provider_filters(raw)}
         health = raw.get("health-check")
         if health is not None:
             if not isinstance(health, dict) or type(health.get("enable", False)) is not bool:
@@ -89,28 +129,58 @@ def proxy_providers(value: object, download: Download) -> tuple[dict, list[dict]
     return providers, validate_nodes(combined), files
 
 
-def _rule_payload(payload: bytes, behavior: str, format: str) -> bytes:
+def _text_rules(text: str) -> list[str]:
+    return [line.strip() for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith(("#", "//"))]
+
+
+def _strict_domains(entries: list) -> bool:
+    # Infer only the unambiguous exact/suffix subset. Mixed classical lines,
+    # CIDRs, URLs, ports and path-like values must never change interpretation.
+    pattern = re.compile(r"(?:\+\.|\*\.|\.)?"
+                         r"[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
+                         r"(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)+\.?\Z")
+    return bool(entries) and all(isinstance(entry, str) and len(entry) <= 253
+                                 and pattern.fullmatch(entry) for entry in entries)
+
+
+def _rule_payload(payload: bytes, behavior: str, format: str) -> tuple[bytes, str, bool]:
     if format == "mrs":
         # The system decoder bounds expansion; Mihomo checks strategy semantics.
         if behavior == "classical" or not payload.startswith(b"\x28\xb5\x2f\xfd"):
             raise ProxyError("MRS 仅支持 domain/ipcidr，且必须是有效的 Zstandard 规则文件")
         validate_mrs(payload, behavior)
-        return payload
+        return payload, behavior, False
     text = decode_text(payload)
+    normalized = False
     if format == "yaml":
-        value = load_yaml(text)
+        try:
+            value = load_yaml(text)
+        except ProxyError:
+            value = None
         if not isinstance(value, dict):
-            raise ProxyError("YAML 规则集必须包含 payload 列表")
-        entries = value.get("payload")
+            # Some public lists omit the YAML wrapper despite being declared
+            # yaml. Accept only complete, valid classical lines, then emit the
+            # wrapper ourselves. Invalid YAML and partial rules remain errors.
+            entries = _text_rules(text)
+            if behavior != "classical":
+                raise ProxyError("YAML 规则集必须包含 payload 列表")
+            validate_rules(entries, set(), set(), classical=True)
+            normalized = True
+        else:
+            entries = value.get("payload")
     else:
-        entries = [line.strip() for line in text.splitlines()
-                   if line.strip() and not line.lstrip().startswith(("#", "//"))]
+        entries = _text_rules(text)
     if (not isinstance(entries, list) or not entries or len(entries) > 100_000
             or any(not isinstance(entry, str) or not entry or len(entry) > 4096
                    or re.search(r"[\x00-\x1f\x7f]", entry) for entry in entries)):
         raise ProxyError("规则集必须包含非空字符串规则，最多 100000 条")
     if behavior == "classical":
-        validate_rules(entries, set(), set(), classical=True)
+        if _strict_domains(entries):
+            behavior = "domain"
+            normalized = True
+        else:
+            validate_rules(entries, set(), set(), classical=True)
     elif behavior == "ipcidr":
         try:
             for entry in entries:
@@ -123,14 +193,16 @@ def _rule_payload(payload: bytes, behavior: str, format: str) -> bytes:
     if format == "yaml":
         # Mihomo's rule-provider reader is line-based, unlike its config loader.
         # It requires block "payload:" syntax, including for inline/flow input.
-        return yaml.safe_dump({"payload": entries}, default_flow_style=False,
-                              sort_keys=False, allow_unicode=True).encode("utf-8")
-    return payload
+        return (yaml.safe_dump({"payload": entries}, default_flow_style=False,
+                               sort_keys=False, allow_unicode=True).encode("utf-8"),
+                behavior, normalized)
+    return payload, behavior, normalized
 
 
-def rule_providers(value: object, download: Download) -> tuple[dict, dict]:
+def rule_providers(value: object, download: Download) -> tuple[dict, dict, int]:
     providers, files = {}, {}
-    for name, raw in _mapping(value, 64).items():
+    normalized_count = 0
+    for name, raw in _mapping(value, 128).items():
         if not isinstance(raw, dict):
             raise ProxyError("规则 provider 必须是对象")
         kind, behavior, format = raw.get("type"), raw.get("behavior"), raw.get("format", "yaml")
@@ -138,8 +210,7 @@ def rule_providers(value: object, download: Download) -> tuple[dict, dict]:
                 or format not in ("yaml", "text", "mrs")):
             raise ProxyError("规则 behavior 或 format 无效")
         if kind == "http":
-            if raw.get("header") or raw.get("headers"):
-                raise ProxyError("暂不支持带自定义请求头的规则 provider")
+            _download_options(raw)
             payload = fetch_payload(raw.get("url"), download)
         elif kind == "inline":
             if format != "yaml":
@@ -147,17 +218,18 @@ def rule_providers(value: object, download: Download) -> tuple[dict, dict]:
             payload = json.dumps({"payload": raw.get("payload")}, ensure_ascii=False).encode()
         else:
             raise ProxyError("规则 provider 仅支持 HTTPS http 或 inline，不支持本地文件")
-        payload = _rule_payload(payload, behavior, format)
+        payload, behavior, normalized = _rule_payload(payload, behavior, format)
+        normalized_count += normalized
         path, encoded = file_resource(payload, format)
         providers[name] = {"type": "file", "behavior": behavior, "format": format, "path": path}
         files[path] = encoded
     if sum(len(value) for value in files.values()) > MAX_TOTAL_BYTES:
         raise ProxyError("规则集总大小超过限制")
-    return providers, files
+    return providers, files, normalized_count
 
 
 def validate_provider_files(files: object) -> dict[str, bytes]:
-    if not isinstance(files, dict) or len(files) > 80:
+    if not isinstance(files, dict) or len(files) > 160:
         raise ProxyError("provider 缓存列表无效")
     result = {}
     total = 0

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .errors import ProxyError
 from .network import validate_url
+from .profile_protocols import validate_anytls, validate_endpoint, validate_wireguard
 from .profile_yaml import load_yaml
 
 MAX_BYTES = 4 * 1024 * 1024
@@ -23,10 +24,14 @@ SUPPORTED_TYPES = {
     "tuic",
     "socks5",
     "http",
+    "anytls",
+    "wireguard",
 }
 RESERVED_NAMES = {"DIRECT", "REJECT", "GLOBAL", "节点选择", "自动选择", "COMPATIBLE", "PASS"}
 FORBIDDEN_KEYS = {
     "private-key",
+    "private-key-file",
+    "private-key-path",
     "client-key",
     "client-certificate",
     "ca",
@@ -39,11 +44,18 @@ FORBIDDEN_KEYS = {
 }
 
 
-def _safe_tree(value: object, depth: int = 0) -> None:
+def _safe_tree(value: object, depth: int = 0, *, wireguard: bool = False) -> None:
     if depth > 12:
         raise ProxyError("节点配置嵌套层级过深")
     if isinstance(value, dict):
         for key, child in value.items():
+            if depth == 0 and key == "private-key" and wireguard:
+                continue  # Already validated as inline Base64, never a path.
+            if depth == 0 and key == "dialer-proxy":
+                from .profile_rules import valid_name
+
+                valid_name(child, "链式拨号策略")
+                continue
             if not isinstance(key, str) or key.lower() in FORBIDDEN_KEYS:
                 raise ProxyError("节点包含不支持的本地文件、接口或链式拨号设置")
             _safe_tree(child, depth + 1)
@@ -61,16 +73,18 @@ def validate_nodes(nodes: object) -> list[dict]:
     for node in nodes:
         if not isinstance(node, dict) or node.get("type") not in SUPPORTED_TYPES:
             raise ProxyError("节点协议不支持；请提供常见 Clash/Mihomo 节点订阅")
-        name, server, port = node.get("name"), node.get("server"), node.get("port")
+        name = node.get("name")
         if not isinstance(name, str) or not name.strip() or len(name) > 128:
             raise ProxyError("节点名称为空或过长")
         if name in names or name in RESERVED_NAMES or re.search(r"[\x00-\x1f\x7f]", name):
             raise ProxyError("节点名称重复、含控制字符或与内置策略同名")
-        if not isinstance(server, str) or not server or len(server) > 253:
-            raise ProxyError("节点服务器地址无效")
-        if type(port) is not int or not 1 <= port <= 65535:
-            raise ProxyError("节点端口必须是 1 到 65535 的整数")
-        _safe_tree(node)
+        if node["type"] == "wireguard":
+            validate_wireguard(node)
+        else:
+            validate_endpoint(node)
+            if node["type"] == "anytls":
+                validate_anytls(node)
+        _safe_tree(node, wireguard=node["type"] == "wireguard")
         names.add(name)
     return copy.deepcopy(nodes)
 
@@ -105,12 +119,16 @@ def parse_subscription(content: str) -> tuple[list[dict], list[str]]:
 def build_config(nodes: list[dict] | dict, *, mode: str, tun: bool, secret: str) -> dict:
     if mode not in ("rule", "global", "direct") or type(tun) is not bool:
         raise ProxyError("代理模式或 TUN 设置无效")
-    from .profiles import effective_rules, runtime_profile
+    from .profiles import effective_nodes, effective_rules, runtime_profile
 
     profile = runtime_profile(nodes) if isinstance(nodes, dict) else None
-    validated = validate_nodes(profile["nodes"] if profile else nodes)
+    validated = validate_nodes(effective_nodes(profile) if profile else nodes)
     if not validated:
         raise ProxyError("请先导入有节点的配置")
+    if profile is None:
+        from .profile_rules import validate_dialer_graph
+
+        validate_dialer_graph(validated, [], {}, {node["name"] for node in validated})
     names = [node["name"] for node in validated]
     config = {
         "geo-auto-update": False,

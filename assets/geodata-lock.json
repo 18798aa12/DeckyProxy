@@ -11,6 +11,19 @@
     "geosite.dat": {
       "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/710a1701c53726d183d3b627da03ec9e4bc4ad60/geosite.dat",
       "sha256": "854164d97f88d0d14c520c87bb0f0e2468bb30b01e028d20ac4830de7bd7a3a8"
+    },
+    "ASN.mmdb": {
+      "url": "https://download.db-ip.com/free/dbip-asn-lite-2026-10.mmdb.gz",
+      "archive_sha256": "6cdde02baa8c1bd619ab84c2e505ecd91d45288b5a87faadf1b7c41525a17a94",
+      "sha256": "4384bfcfb594391bc4e0ab37751f44661eaf7cadbeee28a90a6b82dc935fec4c",
+      "compression": "gzip",
+      "license": "CC-BY-4.0",
+      "attribution": "IP Geolocation by DB-IP https://db-ip.com",
+      "source": "https://db-ip.com/db/download/ip-to-asn-lite",
+      "headers": {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": "https://db-ip.com/db/download/ip-to-asn-lite"
+      }
     }
   },
   "source": {

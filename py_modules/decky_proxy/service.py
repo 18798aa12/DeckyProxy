@@ -9,6 +9,7 @@ from .configuration import build_config, write_provider_files
 from .errors import ProxyError
 from .maintenance import MaintenanceOperations
 from .network import fetch_https
+from .profile_files import LocalYamlFiles
 from .profile_operations import ProfileOperations
 from .storage import Store, atomic_write, private_directory, write_json
 
@@ -30,6 +31,7 @@ class ProxyService(ProfileOperations, MaintenanceOperations):
         self.updates = None
         self._update_lock = asyncio.Lock()
         self.maintenance_error: str | None = None
+        self.files = LocalYamlFiles()
 
     async def get_status(self) -> dict:
         state = await asyncio.to_thread(self.store.load)
@@ -43,7 +45,7 @@ class ProxyService(ProfileOperations, MaintenanceOperations):
             "platform_supported": self.core.supported,
             "last_error": self.last_error or self.maintenance_error,
             "mixed_port": 19790,
-            "version": "0.2.0",
+            "version": "0.2.1",
             "active_profile_summary": await asyncio.to_thread(self.profile_summary, state),
             "update": self.updates.status()
             if self.updates
@@ -237,7 +239,7 @@ class ProxyService(ProfileOperations, MaintenanceOperations):
         state = await self.get_status()
         return "\n".join(
             [
-                "DeckyProxy 0.2.0",
+                "DeckyProxy 0.2.1",
                 f"内核锁定版本：{state['core_version']}",
                 f"Linux x86_64：{state['platform_supported']}",
                 f"内核校验通过：{state['core_installed']}",

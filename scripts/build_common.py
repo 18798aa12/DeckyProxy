@@ -10,7 +10,7 @@ import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / ".cache" / "downloads"
@@ -21,6 +21,7 @@ class DownloadSpec(TypedDict):
 
     url: str
     sha256: str
+    headers: NotRequired[dict[str, str]]
 
 
 class CoreAsset(DownloadSpec):
@@ -64,7 +65,8 @@ def download_verified(
         temporary: Path | None = None
         try:
             request = urllib.request.Request(
-                spec["url"], headers={"User-Agent": "DeckyProxy-release-builder/0.1"}
+                spec["url"],
+                headers={"User-Agent": "DeckyProxy-release-builder/0.1", **spec.get("headers", {})},
             )
             with urllib.request.urlopen(request, timeout=60) as response:
                 if not response.geturl().startswith("https://"):

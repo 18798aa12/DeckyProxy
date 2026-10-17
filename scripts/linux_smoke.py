@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import platform
 import socket
@@ -88,6 +89,28 @@ def check_core(binary: Path) -> None:
             "password": "configuration-test-only",
         }
     ]
+    nodes = [
+        *nodes,
+        {
+            "name": "AnyTLS-validation",
+            "type": "anytls",
+            "server": "203.0.113.2",
+            "port": 443,
+            "password": "configuration-test-only",
+            "udp": True,
+        },
+        {
+            "name": "WireGuard-validation",
+            "type": "wireguard",
+            "server": "203.0.113.3",
+            "port": 51820,
+            "ip": "10.20.30.2",
+            "private-key": base64.b64encode(bytes(range(32))).decode(),
+            "public-key": base64.b64encode(bytes(range(1, 33))).decode(),
+            "allowed-ips": ["0.0.0.0/0"],
+            "udp": True,
+        },
+    ]
     with tempfile.TemporaryDirectory(prefix="decky-proxy-core-check-") as directory:
         config = Path(directory) / "config.json"
         config.write_text(
@@ -159,6 +182,7 @@ def check_core(binary: Path) -> None:
                         "RULE-SET,mrs,Proxy",
                         "GEOIP,CN,DIRECT,no-resolve",
                         "GEOSITE,cn,DIRECT",
+                        "IP-ASN,13335,DIRECT",
                         "MATCH,Proxy",
                     ],
                 }
