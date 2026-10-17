@@ -82,6 +82,11 @@ async def test_full_import_start_groups_mode_stop_journey(service):
     assert (await service.stop_proxy())["running"] is False
 
 
+async def test_diagnostics_reports_the_current_status_version(service):
+    state = await service.get_status()
+    assert (await service.get_diagnostics()).splitlines()[0] == f"DeckyProxy {state['version']}"
+
+
 async def test_invalid_import_does_not_destroy_previous_profile(service):
     state = await service.import_profile("first", "", YAML)
     with pytest.raises(ProxyError):

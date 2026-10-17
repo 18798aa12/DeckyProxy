@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { StrictMode, forwardRef, useEffect, useImperativeHandle, useRef, type ReactNode } from "react";
 import type { Status } from "./types";
+import type { DefinePluginFn } from "@decky/api";
 
 const { mocks } = vi.hoisted(() => ({ mocks: {
   getStatus: vi.fn(), getGroups: vi.fn(), startProxy: vi.fn(), stopProxy: vi.fn(),
@@ -15,8 +16,14 @@ const { mocks } = vi.hoisted(() => ({ mocks: {
 } }));
 
 vi.mock("./rpc", () => ({ backend: mocks }));
-vi.mock("@decky/api", () => ({ useQuickAccessVisible: mocks.quickAccessVisible, openFilePicker: mocks.openFilePicker, FileSelectionType: { FILE: 0 } }));
+vi.mock("@decky/api", () => ({
+  useQuickAccessVisible: mocks.quickAccessVisible,
+  openFilePicker: mocks.openFilePicker,
+  FileSelectionType: { FILE: 0 },
+  definePlugin: (factory: DefinePluginFn): DefinePluginFn => factory,
+}));
 vi.mock("@decky/ui", () => ({
+  staticClasses: { Title: "decky-title" },
   GamepadButton: { CANCEL: 2 },
   PanelSection: ({ title, children }: { title: string; children: ReactNode }) => <section aria-label={title}>{children}</section>,
   PanelSectionRow: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -45,6 +52,7 @@ vi.mock("@decky/ui", () => ({
 
 import { App } from "./App";
 import { clearProfileDraft } from "./profileDraft";
+import createPlugin from "./index";
 
 const status: Status = {
   running: false, core_installed: true, core_version: "v1.19.0", platform_supported: true,
@@ -188,6 +196,100 @@ describe("local YAML files and back navigation", () => {
     fireEvent.change(await screen.findByLabelText("配置名称"), { target: { value: "我的游戏线路" } });
     fireEvent.click(screen.getByText("选择 YAML 文件并导入"));
     await waitFor(() => expect(mocks.importProfileFile).toHaveBeenCalledWith("我的游戏线路", "/home/deck/Downloads/clash.yml"));
+  });
+
+  it("finishes importing when Decky hides the QAM for the native file dialog", async () => {
+    const imported = { ...status, profiles: [...status.profiles, {
+      id: "local-yaml", name: "游戏线路", updated_at: "2026-10-18T00:00:00Z", source_host: "",
+    }] };
+    mocks.getStatus.mockResolvedValue(status);
+    mocks.getImportDirectory.mockResolvedValue("/home/deck/Downloads");
+    mocks.importProfileFile.mockResolvedValue(imported);
+    let choose: (file: { path: string; realpath: string }) => void = () => undefined;
+    mocks.openFilePicker.mockImplementation(() => new Promise((resolve) => { choose = resolve; }));
+    const plugin = createPlugin();
+    function DeckyHost({ visible }: { readonly visible: boolean }) {
+      return <>{(visible || plugin.alwaysRender) && <div hidden={!visible}>{plugin.content}</div>}</>;
+    }
+    const view = render(<DeckyHost visible />);
+    fireEvent.click(await screen.findByText("选择 YAML 文件并导入"));
+    await waitFor(() => expect(mocks.openFilePicker).toHaveBeenCalledTimes(1));
+    mocks.quickAccessVisible.mockReturnValue(false);
+    view.rerender(<DeckyHost visible={false} />);
+    await act(async () => { choose({ path: "/home/deck/Downloads/游戏线路.yaml", realpath: "/home/deck/Downloads/游戏线路.yaml" }); });
+    await waitFor(() => expect(mocks.importProfileFile).toHaveBeenCalledWith("游戏线路", "/home/deck/Downloads/游戏线路.yaml"));
+    mocks.getStatus.mockResolvedValue(imported);
+    mocks.quickAccessVisible.mockReturnValue(true);
+    view.rerender(<DeckyHost visible />);
+    await waitFor(() => expect((screen.getByLabelText("配置文件") as HTMLSelectElement).value).toBe("local-yaml"));
+    const fileRow = screen.getByText("选择 YAML 文件并导入").parentElement as HTMLElement;
+    expect(within(fileRow).getByText(/YAML 文件已导入/)).toBeTruthy();
+    expect(screen.getByText("使用此配置")).toBeTruthy();
+    expect(mocks.importProfileFile).toHaveBeenCalledTimes(1);
+    expect(mocks.activateProfile).not.toHaveBeenCalled();
+  });
+
+  it("shows distinct selecting and importing progress beside the YAML file button", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    mocks.getImportDirectory.mockResolvedValue("/home/deck/Downloads");
+    let choose: (file: { path: string; realpath: string }) => void = () => undefined;
+    let finishImport: (next: Status) => void = () => undefined;
+    mocks.openFilePicker.mockImplementation(() => new Promise((resolve) => { choose = resolve; }));
+    mocks.importProfileFile.mockImplementation(() => new Promise<Status>((resolve) => { finishImport = resolve; }));
+    render(<App />);
+    const button = await screen.findByText("选择 YAML 文件并导入");
+    const fileRow = button.parentElement as HTMLElement;
+    fireEvent.click(button);
+    await waitFor(() => expect(mocks.openFilePicker).toHaveBeenCalledTimes(1));
+    expect(within(fileRow).getByText("正在选择 YAML 文件…")).toBeTruthy();
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { choose({ path: "/home/deck/Downloads/clash.yaml", realpath: "/home/deck/Downloads/clash.yaml" }); });
+    expect(within(fileRow).queryByText("正在选择 YAML 文件…")).toBeNull();
+    expect(within(fileRow).getByText("正在导入 YAML…")).toBeTruthy();
+    fireEvent.click(button);
+    expect(mocks.importProfileFile).toHaveBeenCalledTimes(1);
+    await act(async () => { finishImport(status); });
+    expect(within(fileRow).queryByText("正在导入 YAML…")).toBeNull();
+    expect(within(fileRow).getByText(/YAML 文件已导入/)).toBeTruthy();
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("keeps an import failure beside the file button after background polling and allows retry", async () => {
+    vi.useFakeTimers();
+    mocks.getStatus.mockResolvedValue(status);
+    mocks.getImportDirectory.mockResolvedValue("/home/deck/Downloads");
+    mocks.openFilePicker.mockResolvedValue({ path: "/home/deck/Downloads/clash.yaml", realpath: "/home/deck/Downloads/clash.yaml" });
+    mocks.importProfileFile.mockRejectedValueOnce(new Error("YAML 规则集下载失败")).mockResolvedValueOnce(status);
+    render(<App />);
+    await act(async () => undefined);
+    const button = screen.getByText("选择 YAML 文件并导入");
+    const fileRow = button.parentElement as HTMLElement;
+    await act(async () => { fireEvent.click(button); });
+    expect(within(fileRow).getByRole("alert").textContent).toBe("YAML 规则集下载失败");
+    const statusReads = mocks.getStatus.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(3001); });
+    expect(mocks.getStatus).toHaveBeenCalledTimes(statusReads + 1);
+    expect(within(fileRow).getByRole("alert").textContent).toBe("YAML 规则集下载失败");
+    await act(async () => { fireEvent.click(button); });
+    expect(mocks.importProfileFile).toHaveBeenCalledTimes(2);
+    expect(within(fileRow).queryByRole("alert")).toBeNull();
+    expect(within(fileRow).getByText(/YAML 文件已导入/)).toBeTruthy();
+  });
+
+  it.each([
+    [{ path: "/home/deck/Downloads", realpath: "/home/deck/Downloads" }, "请选择具体的 YAML 文件，不要选择文件夹。"],
+    [{}, "文件选择器未返回有效路径，请重新选择 YAML 文件。"],
+  ])("shows invalid picker results beside the file button before any import RPC", async (selected, message) => {
+    mocks.getStatus.mockResolvedValue(status);
+    mocks.getImportDirectory.mockResolvedValue("/home/deck/Downloads");
+    mocks.openFilePicker.mockResolvedValue(selected);
+    render(<App />);
+    const button = await screen.findByText("选择 YAML 文件并导入");
+    const fileRow = button.parentElement as HTMLElement;
+    fireEvent.click(button);
+    await waitFor(() => expect(within(fileRow).getByRole("alert").textContent).toBe(message));
+    expect(mocks.importProfileFile).not.toHaveBeenCalled();
+    expect((button as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("silently cancels the picker, prevents duplicate opening, and retains drafts after reopening", async () => {

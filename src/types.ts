@@ -63,4 +63,8 @@ export interface Group {
 }
 
 export type Result<T> = { readonly ok: true; readonly data: T } | { readonly ok: false; readonly error: string };
-export type StatusAction = (label: string, operation: () => Promise<Status>) => Promise<boolean>;
+export type StatusAction = (
+  label: string,
+  operation: () => Promise<Status>,
+  onError?: (message: string) => void,
+) => Promise<boolean>;

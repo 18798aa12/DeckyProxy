@@ -45,7 +45,7 @@ class ProxyService(ProfileOperations, MaintenanceOperations):
             "platform_supported": self.core.supported,
             "last_error": self.last_error or self.maintenance_error,
             "mixed_port": 19790,
-            "version": "0.2.1",
+            "version": "0.2.2",
             "active_profile_summary": await asyncio.to_thread(self.profile_summary, state),
             "update": self.updates.status()
             if self.updates
@@ -239,7 +239,7 @@ class ProxyService(ProfileOperations, MaintenanceOperations):
         state = await self.get_status()
         return "\n".join(
             [
-                "DeckyProxy 0.2.1",
+                f"DeckyProxy {state['version']}",
                 f"内核锁定版本：{state['core_version']}",
                 f"Linux x86_64：{state['platform_supported']}",
                 f"内核校验通过：{state['core_installed']}",

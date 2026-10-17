@@ -13,18 +13,24 @@ interface Props {
   readonly run: StatusAction;
 }
 
+interface FileFeedback {
+  readonly kind: "success" | "error";
+  readonly message: string;
+}
+
 export function ProfilePanel({ status, busy: requestBusy, run }: Props) {
   const [selectedId, setSelectedId] = useState("");
   const [draft, setDraft] = useState(readProfileDraft);
   const { source, name, value } = draft;
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [picking, setPicking] = useState(false);
+  const [filePhase, setFilePhase] = useState<"selecting" | "importing" | null>(null);
+  const [fileFeedback, setFileFeedback] = useState<FileFeedback | null>(null);
   const pickerLocked = useRef(false);
   const mounted = useRef(true);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileControl = useRef<HTMLDivElement>(null);
-  const busy = requestBusy || picking;
+  const busy = requestBusy || filePhase !== null;
   const selected = status.profiles.find((item) => item.id === selectedId)
     ?? status.profiles.find((item) => item.id === status.active_profile_id)
     ?? status.profiles[0];
@@ -59,7 +65,8 @@ export function ProfilePanel({ status, busy: requestBusy, run }: Props) {
   const importFile = async (): Promise<void> => {
     if (busy || pickerLocked.current) return;
     pickerLocked.current = true;
-    setPicking(true);
+    setFilePhase("selecting");
+    setFileFeedback(null);
     setError(null);
     try {
       if ([...name.trim()].length > 64) throw new Error("请输入 1–64 个字符的配置名称。");
@@ -68,16 +75,40 @@ export function ProfilePanel({ status, busy: requestBusy, run }: Props) {
       const file = await openFilePicker(FileSelectionType.FILE, directory || "/home/deck/Downloads",
         true, true, undefined, ["yaml", "yml"], false, false);
       if (!mounted.current) return;
+      if (!file || typeof file.path !== "string" || !file.path.trim()) {
+        throw new Error("文件选择器未返回有效路径，请重新选择 YAML 文件。");
+      }
+      if (!/\.ya?ml$/i.test(file.path)) {
+        throw new Error("请选择具体的 YAML 文件，不要选择文件夹。");
+      }
       const filename = file.path.split("/").pop()?.replace(/\.ya?ml$/i, "") || "Clash 配置";
       const importedName = name.trim() || [...filename].slice(0, 64).join("");
       changeDraft({ name: importedName });
-      const imported = await run("YAML 文件已导入", () => backend.importProfileFile(importedName, file.path));
-      if (imported && mounted.current) clearDraft();
+      setFilePhase("importing");
+      let failure: string | null = null;
+      const imported = await run("配置已保存", async () => {
+        const next = await backend.importProfileFile(importedName, file.path);
+        if (mounted.current) {
+          const existingIds = new Set(status.profiles.map((profile) => profile.id));
+          const created = next.profiles.find((profile) => !existingIds.has(profile.id));
+          if (created) setSelectedId(created.id);
+        }
+        return next;
+      }, (message) => { failure = message; });
+      if (!mounted.current) return;
+      if (imported) {
+        clearDraft();
+        setFileFeedback({ kind: "success", message: "YAML 文件已导入" });
+      } else {
+        setFileFeedback({ kind: "error", message: failure ?? "当前有其他操作，请稍后重新导入 YAML。" });
+      }
     } catch (caught) {
-      if (mounted.current && caught !== "User canceled") setError(safeError(caught));
+      if (mounted.current && caught !== "User canceled") {
+        setFileFeedback({ kind: "error", message: safeError(caught) });
+      }
     } finally {
       pickerLocked.current = false;
-      if (mounted.current) { setPicking(false); fileControl.current?.focus(); }
+      if (mounted.current) { setFilePhase(null); fileControl.current?.focus(); }
     }
   };
 
@@ -134,11 +165,18 @@ export function ProfilePanel({ status, busy: requestBusy, run }: Props) {
         onChange={(event) => { changeDraft({ name: event.target.value }); }} />
     </PanelSectionRow>
     <PanelSectionRow>
-      <Focusable ref={fileControl} tabIndex={-1}>
+      <Focusable ref={fileControl} tabIndex={-1} role="group" aria-label="YAML 文件导入">
         <ButtonItem layout="below" disabled={busy}
           description="先在火狐下载 YAML，再从下载、文档或桌面目录选择 .yaml / .yml。"
           onClick={() => { void importFile(); }}>选择 YAML 文件并导入</ButtonItem>
-        {picking && <div role="status" style={styles.note}>正在选择 YAML 文件…</div>}
+        {filePhase && <div role="status" style={styles.note}>
+          {filePhase === "selecting" ? "正在选择 YAML 文件…" : "正在导入 YAML…"}
+        </div>}
+        {fileFeedback && <div role={fileFeedback.kind === "error" ? "alert" : "status"}
+          style={fileFeedback.kind === "error" ? styles.error : styles.notice}>{fileFeedback.message}</div>}
+        {fileFeedback?.kind === "success" && <div style={styles.note}>
+          {active ? "配置已就绪，可开启代理。" : "点击“使用此配置”启用刚导入的配置。"}
+        </div>}
       </Focusable>
     </PanelSectionRow>
     <PanelSectionRow>

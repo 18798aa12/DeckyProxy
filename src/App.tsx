@@ -36,7 +36,7 @@ export function App() {
     } else setGroups([]);
   }, [isCurrent]);
 
-  const run: StatusAction = useCallback(async (label, operation) => {
+  const run: StatusAction = useCallback(async (label, operation, onError) => {
     const queuedId = requestId.current;
     if (pendingRefresh.current) await pendingRefresh.current;
     if (!mounted.current || locked.current || queuedId !== requestId.current) return false;
@@ -50,7 +50,11 @@ export function App() {
       if (isCurrent(id)) setNotice(label);
       return isCurrent(id);
     } catch (caught) {
-      if (isCurrent(id)) setError(safeError(caught));
+      if (isCurrent(id)) {
+        const message = safeError(caught);
+        if (onError) onError(message);
+        else setError(message);
+      }
       return false;
     } finally {
       if (isCurrent(id)) { locked.current = false; setBusy(null); }
