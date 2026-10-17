@@ -64,6 +64,11 @@ const status: Status = {
 beforeEach(() => { mocks.quickAccessVisible.mockReturnValue(true); });
 afterEach(() => { cleanup(); clearProfileDraft(); vi.useRealTimers(); vi.resetAllMocks(); });
 
+const revealGroup = (name: string): void => {
+  fireEvent.click(screen.getByRole("button", { name: "展开策略组与节点（1 组）" }));
+  fireEvent.click(screen.getByRole("button", { name: `展开“${name}”` }));
+};
+
 describe("QAM proxy controls", () => {
   it("loads with proxy off, then applies the start action result", async () => {
     mocks.getStatus.mockResolvedValue(status);
@@ -156,6 +161,8 @@ describe("QAM proxy controls", () => {
     mocks.selectProxy.mockResolvedValue([{ ...group, now: "香港" }]);
     mocks.testDelay.mockResolvedValue({ delay_ms: 72 });
     render(<App />);
+    await screen.findByRole("button", { name: "展开策略组与节点（1 组）" });
+    revealGroup(group.name);
     const control = await screen.findByLabelText("节点选择");
     fireEvent.change(control, { target: { value: "香港" } });
     await waitFor(() => expect(mocks.selectProxy).toHaveBeenCalledWith("节点选择", "香港"));
@@ -164,6 +171,47 @@ describe("QAM proxy controls", () => {
     await waitFor(() => expect(mocks.testDelay).toHaveBeenCalledWith("香港"));
     expect(await screen.findByText("香港：72 ms")).toBeTruthy();
     expect(screen.getByText("延迟为测试站点的往返时间，无法代表游戏服务器延迟。")).toBeTruthy();
+  });
+
+  it("folds the list and each group again after stopping and restarting", async () => {
+    const group = { name: "游戏线路", type: "Selector", now: "东京", options: [{ name: "东京", delay_ms: null }] };
+    mocks.getStatus.mockResolvedValue({ ...status, running: true });
+    mocks.getGroups.mockResolvedValue([group]);
+    mocks.stopProxy.mockResolvedValue(status);
+    mocks.startProxy.mockResolvedValue({ ...status, running: true });
+    render(<App />);
+    await screen.findByRole("button", { name: "展开策略组与节点（1 组）" });
+    revealGroup(group.name);
+    expect(screen.getByLabelText(group.name)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("启用代理"));
+    await waitFor(() => expect((screen.getByLabelText("启用代理") as HTMLInputElement).checked).toBe(false));
+    fireEvent.click(screen.getByLabelText("启用代理"));
+    await screen.findByRole("button", { name: "展开策略组与节点（1 组）" });
+    expect(screen.queryByLabelText(group.name)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "展开策略组与节点（1 组）" }));
+    expect(screen.getByRole("button", { name: "展开“游戏线路”" })).toBeTruthy();
+    expect(screen.queryByLabelText(group.name)).toBeNull();
+  });
+
+  it("folds the list when another profile reuses the same strategy group name", async () => {
+    const group = { name: "游戏线路", type: "Selector", now: "东京", options: [{ name: "东京", delay_ms: null }] };
+    const profiles = [...status.profiles, { ...status.profiles[0], id: "second", name: "另一配置" }];
+    const running = { ...status, profiles, running: true };
+    mocks.getStatus.mockResolvedValue(running);
+    mocks.getGroups.mockResolvedValue([group]);
+    mocks.activateProfile.mockResolvedValue({ ...running, active_profile_id: "second" });
+    render(<App />);
+    await screen.findByRole("button", { name: "展开策略组与节点（1 组）" });
+    revealGroup(group.name);
+    expect(screen.getByLabelText(group.name)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("配置文件"), { target: { value: "second" } });
+    fireEvent.click(screen.getByText("使用此配置"));
+    await waitFor(() => expect(mocks.activateProfile).toHaveBeenCalledWith("second"));
+    await screen.findByRole("button", { name: "展开策略组与节点（1 组）" });
+    expect(screen.queryByLabelText(group.name)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "展开策略组与节点（1 组）" }));
+    expect(screen.getByRole("button", { name: "展开“游戏线路”" })).toBeTruthy();
+    expect(screen.queryByLabelText(group.name)).toBeNull();
   });
 });
 
@@ -449,6 +497,7 @@ describe("visible panel status refresh", () => {
     mocks.getGroups.mockResolvedValue([{ name: "节点选择", type: "select", now: "东京", options: [] }]);
     render(<App />);
     await flush();
+    revealGroup("节点选择");
     expect(screen.getByLabelText("节点选择")).toBeTruthy();
     await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
     expect(mocks.getStatus).toHaveBeenCalledTimes(2);

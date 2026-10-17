@@ -175,7 +175,7 @@ export function App() {
     {error && <div role="alert" style={styles.error}>{error}</div>}
     {status && <>
       <ConnectionPanel status={status} busy={controlsBusy} run={run} />
-      <GroupPanel groups={groups} busy={controlsBusy} running={status.running}
+      <GroupPanel key={`${status.active_profile_id ?? ""}:${status.running}`} groups={groups} busy={controlsBusy} running={status.running}
         onSelect={(group, proxy) => { void runGroupAction(() => backend.selectProxy(group, proxy), "节点已切换"); }}
         onTest={(name) => { void testDelay(name); }} />
       <ProfilePanel status={status} busy={controlsBusy} run={run} />
