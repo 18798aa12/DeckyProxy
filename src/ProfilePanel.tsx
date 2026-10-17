@@ -1,5 +1,5 @@
 import { ButtonItem, DropdownItem, Focusable, PanelSection, PanelSectionRow, TextField } from "@decky/ui";
-import { FileSelectionType, openFilePicker } from "@decky/api";
+import { FileSelectionType, openFilePicker, useQuickAccessVisible } from "@decky/api";
 import { useEffect, useRef, useState } from "react";
 import { backend } from "./rpc";
 import { clearProfileDraft, readProfileDraft, writeProfileDraft, type ProfileDraft } from "./profileDraft";
@@ -30,6 +30,9 @@ export function ProfilePanel({ status, busy: requestBusy, run }: Props) {
   const mounted = useRef(true);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileControl = useRef<HTMLDivElement>(null);
+  const restoreFileFocus = useRef(false);
+  const profileBoundary = useRef<HTMLDivElement>(null);
+  const visible = useQuickAccessVisible();
   const busy = requestBusy || filePhase !== null;
   const selected = status.profiles.find((item) => item.id === selectedId)
     ?? status.profiles.find((item) => item.id === status.active_profile_id)
@@ -41,6 +44,25 @@ export function ProfilePanel({ status, busy: requestBusy, run }: Props) {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
+
+  useEffect(() => {
+    if (!visible || !confirmDelete) return;
+    const element = profileBoundary.current;
+    const cancel = (event: Event): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      setConfirmDelete(false);
+    };
+    element?.addEventListener("vgp_oncancel", cancel);
+    return () => { element?.removeEventListener("vgp_oncancel", cancel); };
+  }, [confirmDelete, visible]);
+
+  useEffect(() => {
+    if (visible && filePhase === null && restoreFileFocus.current) {
+      restoreFileFocus.current = false;
+      fileControl.current?.focus();
+    }
+  }, [filePhase, visible]);
 
   const changeDraft = (change: Partial<ProfileDraft>): void => {
     const next = { ...draft, ...change };
@@ -108,16 +130,14 @@ export function ProfilePanel({ status, busy: requestBusy, run }: Props) {
       }
     } finally {
       pickerLocked.current = false;
-      if (mounted.current) { setFilePhase(null); fileControl.current?.focus(); }
+      if (mounted.current) {
+        restoreFileFocus.current = true;
+        setFilePhase(null);
+      }
     }
   };
 
-  return <Focusable onCancelButton={(event) => {
-    if (!confirmDelete) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setConfirmDelete(false);
-  }}><PanelSection title="配置">
+  return <Focusable ref={profileBoundary}><PanelSection title="配置">
     {summary && <PanelSectionRow>
       <div style={styles.note}>
         {summary.source_rules

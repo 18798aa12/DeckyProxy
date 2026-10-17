@@ -24,7 +24,7 @@ vi.mock("@decky/api", () => ({
 }));
 vi.mock("@decky/ui", () => ({
   staticClasses: { Title: "decky-title" },
-  GamepadButton: { CANCEL: 2 },
+  GamepadButton: { OK: 1, CANCEL: 2 },
   PanelSection: ({ title, children }: { title: string; children: ReactNode }) => <section aria-label={title}>{children}</section>,
   PanelSectionRow: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   Focusable: forwardRef<HTMLDivElement, { children: ReactNode; onCancelButton?: (event: CustomEvent) => void; onButtonDown?: (event: CustomEvent<{ button: number }>) => void; onGamepadDirection?: () => void; onActivate?: () => void; tabIndex?: number; onKeyDown?: React.KeyboardEventHandler<HTMLDivElement> }>(function MockFocusable({ children, onCancelButton, onButtonDown, onGamepadDirection: _onGamepadDirection, onActivate: _onActivate, ...props }, ref) {
@@ -34,11 +34,11 @@ vi.mock("@decky/ui", () => ({
       const element = local.current;
       const listener = (event: Event): void => { onCancelButton?.(event as CustomEvent); };
       const buttonListener = (event: Event): void => { onButtonDown?.(event as CustomEvent<{ button: number }>); };
-      element?.addEventListener("decky-test-cancel", listener);
-      element?.addEventListener("decky-test-button", buttonListener);
+      element?.addEventListener("vgp_oncancel", listener);
+      element?.addEventListener("vgp_onbuttondown", buttonListener);
       return () => {
-        element?.removeEventListener("decky-test-cancel", listener);
-        element?.removeEventListener("decky-test-button", buttonListener);
+        element?.removeEventListener("vgp_oncancel", listener);
+        element?.removeEventListener("vgp_onbuttondown", buttonListener);
       };
     }, [onCancelButton, onButtonDown]);
     return <div ref={local} {...props}>{children}</div>;
@@ -169,7 +169,7 @@ describe("QAM proxy controls", () => {
 
 describe("local YAML files and back navigation", () => {
   const cancel = (element: HTMLElement): CustomEvent => {
-    const event = new CustomEvent("decky-test-cancel", { bubbles: true, cancelable: true });
+    const event = new CustomEvent("vgp_oncancel", { bubbles: true, cancelable: true });
     fireEvent(element, event);
     return event;
   };
@@ -218,6 +218,8 @@ describe("local YAML files and back navigation", () => {
     view.rerender(<DeckyHost visible={false} />);
     await act(async () => { choose({ path: "/home/deck/Downloads/游戏线路.yaml", realpath: "/home/deck/Downloads/游戏线路.yaml" }); });
     await waitFor(() => expect(mocks.importProfileFile).toHaveBeenCalledWith("游戏线路", "/home/deck/Downloads/游戏线路.yaml"));
+    const hiddenFileRow = screen.getByText("选择 YAML 文件并导入").parentElement as HTMLElement;
+    expect(hiddenFileRow.contains(document.activeElement)).toBe(false);
     mocks.getStatus.mockResolvedValue(imported);
     mocks.quickAccessVisible.mockReturnValue(true);
     view.rerender(<DeckyHost visible />);
@@ -345,7 +347,7 @@ describe("local YAML files and back navigation", () => {
     fireEvent.change(editor, { target: { value: "proxies: []\n" } });
     editor.focus();
     const outerBack = vi.fn();
-    view.container.addEventListener("decky-test-cancel", outerBack);
+    view.container.addEventListener("vgp_oncancel", outerBack);
     const first = cancel(editor);
     expect(first.defaultPrevented).toBe(true);
     expect(document.activeElement).not.toBe(editor);
@@ -366,7 +368,7 @@ describe("local YAML files and back navigation", () => {
     const view = render(<App />);
     const control = await screen.findByText("刷新状态");
     const outerBack = vi.fn();
-    view.container.addEventListener("decky-test-cancel", outerBack);
+    view.container.addEventListener("vgp_oncancel", outerBack);
     expect(cancel(control).defaultPrevented).toBe(true);
     expect(screen.getByText("再次按 B 返回 Decky")).toBeTruthy();
     expect(outerBack).not.toHaveBeenCalled();
@@ -391,7 +393,7 @@ describe("local YAML files and back navigation", () => {
     render(<App />);
     const control = await screen.findByText("刷新状态");
     cancel(control);
-    const repeated = new CustomEvent("decky-test-cancel", { bubbles: true, cancelable: true, detail: { is_repeat: true } });
+    const repeated = new CustomEvent("vgp_oncancel", { bubbles: true, cancelable: true, detail: { is_repeat: true } });
     fireEvent(control, repeated);
     expect(repeated.defaultPrevented).toBe(true);
     expect(screen.getByText("再次按 B 返回 Decky")).toBeTruthy();
@@ -403,7 +405,7 @@ describe("local YAML files and back navigation", () => {
     const view = render(<App />);
     const control = await screen.findByText("刷新状态");
     cancel(control);
-    fireEvent(control, new CustomEvent("decky-test-button", { bubbles: true, detail: { button: 1 } }));
+    fireEvent(control, new CustomEvent("vgp_onbuttondown", { bubbles: true, detail: { button: 1 } }));
     expect(screen.queryByText("再次按 B 返回 Decky")).toBeNull();
     expect(cancel(control).defaultPrevented).toBe(true);
     fireEvent.click(screen.getByLabelText("配置"));
