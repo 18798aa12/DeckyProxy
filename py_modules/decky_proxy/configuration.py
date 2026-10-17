@@ -1,14 +1,14 @@
-"""Extract only nodes. All privileged core settings belong to the plugin."""
+"""Build managed core settings and expose validated subscription import APIs."""
 
 import copy
 import json
 import re
-
-import yaml
-from yaml.tokens import AliasToken, AnchorToken
+from collections.abc import Callable
+from pathlib import Path
 
 from .errors import ProxyError
 from .network import validate_url
+from .profile_yaml import load_yaml
 
 MAX_BYTES = 4 * 1024 * 1024
 MAX_NODES = 2000
@@ -37,14 +37,6 @@ FORBIDDEN_KEYS = {
     "smux",
     "dialer-proxy",
 }
-
-
-class UniqueLoader(yaml.SafeLoader):
-    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict:
-        keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
-        if any(not isinstance(key, str) for key in keys) or len(set(keys)) != len(keys):
-            raise ProxyError("YAML 包含重复键或非字符串键")
-        return super().construct_mapping(node, deep=deep)
 
 
 def _safe_tree(value: object, depth: int = 0) -> None:
@@ -86,12 +78,7 @@ def validate_nodes(nodes: object) -> list[dict]:
 def parse_subscription(content: str) -> tuple[list[dict], list[str]]:
     if not isinstance(content, str) or len(content.encode()) > MAX_BYTES:
         raise ProxyError("订阅超过 4 MiB 限制")
-    try:
-        if any(isinstance(token, (AliasToken, AnchorToken)) for token in yaml.scan(content)):
-            raise ProxyError("暂不支持 YAML 锚点或别名，请导出展开后的 Clash YAML")
-        value = yaml.load(content, Loader=UniqueLoader)
-    except (yaml.YAMLError, RecursionError, ValueError) as error:
-        raise ProxyError("订阅不是有效的 Clash YAML；不支持 Base64 或单节点分享链接") from error
+    value = load_yaml(content)
     if not isinstance(value, dict):
         raise ProxyError("订阅必须是包含 proxies 的 Clash YAML")
     nodes = validate_nodes(value.get("proxies", []))
@@ -115,14 +102,20 @@ def parse_subscription(content: str) -> tuple[list[dict], list[str]]:
     return nodes, urls
 
 
-def build_config(nodes: list[dict], *, mode: str, tun: bool, secret: str) -> dict:
+def build_config(nodes: list[dict] | dict, *, mode: str, tun: bool, secret: str) -> dict:
     if mode not in ("rule", "global", "direct") or type(tun) is not bool:
         raise ProxyError("代理模式或 TUN 设置无效")
-    validated = validate_nodes(nodes)
+    from .profiles import effective_rules, runtime_profile
+
+    profile = runtime_profile(nodes) if isinstance(nodes, dict) else None
+    validated = validate_nodes(profile["nodes"] if profile else nodes)
     if not validated:
         raise ProxyError("请先导入有节点的配置")
     names = [node["name"] for node in validated]
-    return {
+    config = {
+        "geo-auto-update": False,
+        "geodata-mode": True,
+        "geodata-loader": "memconservative",
         "mixed-port": 19790,
         "allow-lan": False,
         "bind-address": "127.0.0.1",
@@ -184,3 +177,33 @@ def build_config(nodes: list[dict], *, mode: str, tun: bool, secret: str) -> dic
             "MATCH,节点选择",
         ],
     }
+
+    if profile:
+        config["rules"] = effective_rules(profile)
+        if profile["groups"]:
+            config["proxies"] = profile["inline_nodes"]
+            config["proxy-groups"] = profile["groups"]
+            if profile["proxy_providers"]:
+                config["proxy-providers"] = profile["proxy_providers"]
+        if profile["rule_providers"]:
+            config["rule-providers"] = profile["rule_providers"]
+    return config
+
+
+def prepare_profile(content: str, download: Callable[[str], bytes]) -> dict:
+    from .profiles import prepare_profile as prepare
+
+    return prepare(content, download)
+
+
+def prepare_rule_provider(name: str, url: str, behavior: str, format: str, target: str,
+                          profile: dict, download: Callable[[str], bytes]) -> dict:
+    from .profiles import prepare_rule_provider as prepare
+
+    return prepare(name, url, behavior, format, target, profile, download)
+
+
+def write_provider_files(profile: dict, runtime: Path) -> None:
+    from .profile_providers import write_provider_files as write
+
+    write(profile, runtime)

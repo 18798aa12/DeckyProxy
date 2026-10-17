@@ -4,44 +4,53 @@
 
 这是独立项目。安装包面向 **SteamOS / Linux x86_64**；macOS 只用于开发、测试和打包。**尚未完成 Steam Deck 真机验收**，请先阅读[真机检查表](docs/STEAM_DECK_TESTING.md)。
 
-## 第一版功能与边界
+## v0.2 功能
 
-- 游戏模式 QAM 面板：启停、TUN 开关、规则 / 全局 / 直连模式、策略组选择和节点延迟检查。
-- 导入公网 HTTPS 的 Clash YAML 订阅，或直接粘贴 YAML；保存、切换、更新和删除配置。
-- 支持后端安全下载并展开 HTTPS `proxy-providers`。不支持 Base64 订阅、单节点分享链接、本地文件 provider、需要额外请求头的 provider。
-- **只提取节点**，重新生成“节点选择 / 自动选择”两个组。订阅里的规则、DNS、TUN、监听端口和原有策略组不会直接使用。
-- **规则模式是局域网直连、其余流量代理，并非中国大陆直连分流。** Steam 下载也可能消耗代理流量。游戏的 UDP 能否使用，取决于节点协议和服务商。
-- 默认不开启代理，自动启动默认关闭；导入订阅不会接管网络。内核与设置分开存储，停止代理不删除订阅。
-- 不修改 `/etc/resolv.conf`、NetworkManager 配置或系统只读分区；不向局域网开放管理端口。
+- 游戏模式 QAM 面板：启停、TUN 开关、规则 / 全局 / 直连模式、策略组选择和节点测速。
+- 导入公网 HTTPS Clash YAML 订阅或粘贴 YAML，保留常见原始策略组、规则及其顺序。
+- 支持 HTTP / inline 节点与规则 provider；规则集支持 YAML、text 和 domain/ipcidr MRS。后端安全下载到私有缓存，订阅里的任意本地路径不会交给 root 内核。
+- 可向当前配置添加远程规则集，选择目标策略组，插入最终 MATCH 前；刷新订阅保留手动添加的规则集。
+- URL 订阅定时更新：关闭、6、12、24 小时。关闭面板仍会执行；失败保留旧配置，更新运行中的活动配置会短暂重启内核。
+- 插件自动检查新版，另提供“停止代理后自动安装”开关，默认关闭。安装前验证发行签名和 ZIP SHA256；安装会短暂重启 Decky，后端健康检查失败时尝试回滚。
+- 包含固定版本 GEOIP / GEOSITE 数据，使用地理规则无需首次启动再下载。
+- 默认不开启代理，自动启动默认关闭。监听端口、DNS、TUN 与控制器由插件统一管理；不改系统 DNS 文件。
 
-暂未包含完整 Clash 仪表盘、自定义分流规则编辑器、订阅格式转换、二维码导入、自动更新内核或流量额度展示。
+仅节点订阅继续使用内置“节点选择 / 自动选择”组与局域网直连规则，**不会自动增加中国大陆直连规则**；需要国内直连时导入含对应规则的完整订阅。Steam 下载可能消耗代理流量；游戏 UDP 取决于协议与服务商。
+
+不支持 Base64、单节点分享链接、本地文件 provider、额外 HTTP 请求头、脚本、sub-rules、relay、ASN 规则及不受支持的本地文件/接口配置；导入时会明确报错。策略组健康检查使用插件固定地址。MRS 需系统 libzstd（SteamOS 已提供），也可使用 YAML/text。不是所有 Mihomo 扩展都兼容，最终由锁定内核校验。
+
+### 从 v0.1 升级
+
+v0.1 没有更新模块，需要手动安装一次 v0.2 ZIP。个人配置保持在独立 settings 目录；旧版只保存了节点，升级后请对 URL 订阅点击一次“更新”，才能恢复订阅原本的规则与策略组。粘贴配置请重新导入完整 YAML。
+
+安装新版前先停止代理。自动检查默认开启，检查失败可手动重试；自动安装只有你开启该选项后才会执行，并等待代理停止。缺少 SteamOS 的 systemd、ssh-keygen 或安全目录条件时，界面会提示手动安装。
 
 ## 在 Steam Deck 安装
 
 ### 大陆网络下载
 
-GitHub 直连或短链接无法访问时，可尝试以下第三方加速线路；两条线路已完整下载并核对安装 ZIP 的 SHA256 与官方发布一致，但尚未在每个大陆运营商网络上实测。
+GitHub 直连或短链接无法访问时，可尝试以下第三方加速线路；加速站只传输公开安装包；网络可用性取决于运营商。使用同版本 SHA256SUMS 核对安装包，或在 v0.2 内使用发行签名验证的更新。
 
-- [加速下载一（ghfast.top）](https://ghfast.top/https://github.com/18798aa12/DeckyProxy/releases/download/v0.1.0/DeckyProxy-0.1.0.zip)
-- [加速下载二（gh-proxy.org）](https://gh-proxy.org/https://github.com/18798aa12/DeckyProxy/releases/download/v0.1.0/DeckyProxy-0.1.0.zip)
+- [加速下载一（ghfast.top）](https://ghfast.top/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.0/DeckyProxy-0.2.0.zip)
+- [加速下载二（gh-proxy.org）](https://gh-proxy.org/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.0/DeckyProxy-0.2.0.zip)
 
 下载 ZIP 后可在 Decky 的“从 ZIP 安装插件”入口安装；也可将上述加速链接粘贴到“从 URL 安装插件”。安装 ZIP 已包含内核，无需先从 GitHub 下载内核。
 
-校验值：`3e6ef4045cbbc531ede5aaf4a98f82c6a8da72376b97a4d5a29ce44a61fd5394`。精确版本源码附件仍随 [v0.1.0 发布](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.1.0)提供。
+校验值见同次发布的 `SHA256SUMS`。精确版本源码附件随 [v0.2.0 发布](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.0)提供。
 
 ### 原始发布链接
 
 公开测试包可通过 Decky **设置 → 开发者 → 从 URL 安装插件**，粘贴以下链接安装：
 
 ```text
-https://github.com/18798aa12/DeckyProxy/releases/download/v0.1.0/DeckyProxy-0.1.0.zip
+https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.0/DeckyProxy-0.2.0.zip
 ```
 
-也可以在 [GitHub Releases](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.1.0) 下载 ZIP 后按下面步骤安装。当前版本**未上架官方商店**，原因与条件见[发布说明](docs/PUBLISHING.md)。
+也可以在 [GitHub Releases](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.0) 下载 ZIP 后按下面步骤安装。当前版本**未上架官方商店**，原因与条件见[发布说明](docs/PUBLISHING.md)。
 
 1. 先安装并确认 [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) 正常工作。
 2. **停止其他 Clash / VPN / TUN 代理**，包括 ToMoon、DeckyClash 或桌面模式里运行的代理客户端，避免争用路由和 DNS。
-3. 将 `release/DeckyProxy-0.1.0.zip` 传到 Deck。可先在电脑核对同目录 `SHA256SUMS`：Linux 使用 `sha256sum -c SHA256SUMS`，macOS 使用 `shasum -a 256 -c SHA256SUMS`。
+3. 将 `release/DeckyProxy-0.2.0.zip` 传到 Deck。可先在电脑核对同目录 `SHA256SUMS`：Linux 使用 `sha256sum -c SHA256SUMS`，macOS 使用 `shasum -a 256 -c SHA256SUMS`。
 4. 打开 Decky 设置，启用开发者模式，在“开发者”里的“从 ZIP 安装插件”选择安装包。Decky 版本不同，入口文字可能略有差异；本项目尚未上架插件商店。
 5. 在 QAM 打开 **DeckyProxy**，输入名称和公网 HTTPS 订阅，点击“导入配置”，选择要使用的配置。
 6. 检查模式和 TUN 设置后，手动打开“启用代理”。通常游戏与 Steam 系统流量需要 TUN；关闭 TUN 时只启动本地 HTTP / SOCKS 混合代理端口 `127.0.0.1:19790`，应用需自行使用该代理。
@@ -81,13 +90,15 @@ python3 -m venv .venv
 .venv/bin/python scripts/sanitize_release.py
 ```
 
-`package.py` 会按[版本锁定文件](assets/core-lock.json)下载固定内核、对应上游源码和 PyYAML 源码，验证 SHA256，再生成：
+`package.py` 会按[版本锁定文件](assets/core-lock.json)下载固定内核、对应上游源码和 PyYAML 源码，及 GEO 数据和生成脚本，验证 SHA256，再生成：
 
 ```text
 release/
-├── DeckyProxy-0.1.0.zip
-├── DeckyProxy-0.1.0-source.tar.gz
-└── SHA256SUMS
+├── DeckyProxy-0.2.0.zip
+├── DeckyProxy-0.2.0-source.tar.gz
+├── SHA256SUMS
+├── update.json       # 发行者单独签名后生成
+└── update.json.sig
 ```
 
 源码附件包含插件源码、构建脚本和锁定的 Mihomo / PyYAML 上游源码压缩包。**向别人分发安装包时一并提供该源码附件与许可证**；不要只提供上游源码链接。安装 ZIP 不包含用户订阅、运行配置、日志、开发环境或 macOS 扩展模块。
@@ -98,7 +109,7 @@ release/
 .venv/bin/python scripts/linux_smoke.py
 ```
 
-此检查只执行内核版本查询与配置校验，不启动 TUN、不改变主机路由。真实网络行为仍需在 Steam Deck 验收。CI 同样运行前后端检查、打包和 Linux 配置校验。
+此检查执行内核版本、配置校验及短时回环 API 检查，确认规则集实际加载；关闭 TUN 和代理监听，不改变主机路由。真实网络接管仍需在 Steam Deck 验收。CI 同样运行前后端检查、打包和 Linux 内核检查。
 
 ## 代码与调研
 

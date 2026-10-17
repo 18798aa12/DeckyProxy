@@ -9,7 +9,8 @@ const { mocks } = vi.hoisted(() => ({ mocks: {
   setMode: vi.fn(), setTun: vi.fn(), setAutoStart: vi.fn(), importProfile: vi.fn(),
   refreshProfile: vi.fn(), activateProfile: vi.fn(), deleteProfile: vi.fn(),
   selectProxy: vi.fn(), testDelay: vi.fn(), installCore: vi.fn(), getDiagnostics: vi.fn(),
-  quickAccessVisible: vi.fn(),
+  quickAccessVisible: vi.fn(), setSubscriptionInterval: vi.fn(), setUpdatePreferences: vi.fn(),
+  checkForUpdates: vi.fn(), installUpdate: vi.fn(), importRuleProvider: vi.fn(),
 } }));
 
 vi.mock("./rpc", () => ({ backend: mocks }));
@@ -243,5 +244,111 @@ describe("visible panel status refresh", () => {
     await act(async () => { resolveOld({ ...status, running: true }); });
     expect((screen.getByLabelText("启用代理") as HTMLInputElement).checked).toBe(false);
     expect(mocks.getGroups).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("v0.2 rules and maintenance", () => {
+  const availableUpdate = {
+    available: true, version: "0.3.0", checked_at: "2026-10-18T00:00:00Z", error: null,
+    state: "available" as const, supported: true,
+  };
+
+  it("shows imported rules and policy groups rather than describing fixed rules", async () => {
+    mocks.getStatus.mockResolvedValue({ ...status, active_profile_summary: {
+      source_rules: true, rules: 26, groups: 4, rule_providers: 2, legacy: false,
+    } });
+    render(<App />);
+    expect(await screen.findByText("已保留原配置：26 条规则 · 4 个策略组 · 2 个规则集")).toBeTruthy();
+    expect(screen.queryByText(/只使用节点/)).toBeNull();
+  });
+
+  it("explains how a legacy profile can recover its subscription rules", async () => {
+    mocks.getStatus.mockResolvedValue({ ...status, active_profile_summary: {
+      source_rules: false, rules: 5, groups: 2, rule_providers: 0, legacy: true,
+    } });
+    render(<App />);
+    expect(await screen.findByText(/旧版配置只保存了节点/)).toBeTruthy();
+  });
+
+  it("saves a subscription interval as hours", async () => {
+    mocks.getStatus.mockResolvedValue({ ...status, subscription_interval_hours: 0 });
+    mocks.setSubscriptionInterval.mockResolvedValue({ ...status, subscription_interval_hours: 12 });
+    render(<App />);
+    const control = await screen.findByLabelText("订阅自动更新");
+    fireEvent.change(control, { target: { value: "12" } });
+    await waitFor(() => expect(mocks.setSubscriptionInterval).toHaveBeenCalledWith(12));
+    await waitFor(() => expect((control as HTMLSelectElement).value).toBe("12"));
+  });
+
+  it("checks for versions and enables installation only after a signed update is available", async () => {
+    mocks.getStatus.mockResolvedValue({ ...status, version: "0.2.0", update: { ...availableUpdate, available: false, version: null, state: "idle" } });
+    mocks.checkForUpdates.mockResolvedValue({ ...status, version: "0.2.0", update: availableUpdate });
+    mocks.installUpdate.mockResolvedValue({ ...status, update: { ...availableUpdate, state: "installing" } });
+    render(<App />);
+    const install = await screen.findByText("安装新版");
+    expect((install as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByText("检查插件更新"));
+    await waitFor(() => expect(mocks.checkForUpdates).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect((install as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(install);
+    await waitFor(() => expect(mocks.installUpdate).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/正在安装更新/)).toBeTruthy();
+  });
+
+  it("defaults to checking only and saves idle auto-install separately", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    mocks.setUpdatePreferences.mockResolvedValue({ ...status, auto_check_updates: true, auto_install_updates: true });
+    render(<App />);
+    const checking = await screen.findByLabelText("自动检查插件更新");
+    const installing = screen.getByLabelText("停止代理后自动安装");
+    expect((checking as HTMLInputElement).checked).toBe(true);
+    expect((installing as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(installing);
+    await waitFor(() => expect(mocks.setUpdatePreferences).toHaveBeenCalledWith(true, true));
+  });
+
+  it("prevents update installation while the proxy is running", async () => {
+    mocks.getStatus.mockResolvedValue({ ...status, running: true, update: availableUpdate });
+    mocks.getGroups.mockResolvedValue([]);
+    render(<App />);
+    expect((await screen.findByText("安装新版") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("先停止代理，再安装插件更新。")).toBeTruthy();
+  });
+
+  it("imports a rule set for a selected policy and clears the private address", async () => {
+    mocks.getStatus.mockResolvedValue({ ...status, running: true });
+    mocks.getGroups.mockResolvedValue([{ name: "游戏线路", type: "Selector", now: "东京", options: [] }]);
+    mocks.importRuleProvider.mockResolvedValue({ ...status, running: true });
+    render(<App />);
+    await screen.findByLabelText("规则集名称");
+    await screen.findByLabelText("目标策略组");
+    fireEvent.change(screen.getByLabelText("规则集名称"), { target: { value: "游戏规则" } });
+    fireEvent.change(screen.getByLabelText("规则集地址"), { target: { value: "https://rules.example/games.yaml?token=secret" } });
+    fireEvent.change(screen.getByLabelText("规则行为"), { target: { value: "domain" } });
+    fireEvent.change(screen.getByLabelText("目标策略组"), { target: { value: "游戏线路" } });
+    fireEvent.click(screen.getByText("导入规则集"));
+    await waitFor(() => expect(mocks.importRuleProvider).toHaveBeenCalledWith("游戏规则", "https://rules.example/games.yaml?token=secret", "domain", "yaml", "游戏线路"));
+    await waitFor(() => expect((screen.getByLabelText("规则集地址") as HTMLInputElement).value).toBe(""));
+  });
+
+  it("rejects non-HTTPS rule addresses without calling the backend", async () => {
+    mocks.getStatus.mockResolvedValue(status);
+    render(<App />);
+    await screen.findByLabelText("规则集名称");
+    fireEvent.change(screen.getByLabelText("规则集名称"), { target: { value: "游戏规则" } });
+    fireEvent.change(screen.getByLabelText("规则集地址"), { target: { value: "http://rules.example/games.yaml" } });
+    fireEvent.click(screen.getByText("导入规则集"));
+    expect(await screen.findByText("规则集地址必须使用 HTTPS。")).toBeTruthy();
+    expect(mocks.importRuleProvider).not.toHaveBeenCalled();
+  });
+
+  it("offers a valid MRS behavior and disables import without a profile", async () => {
+    mocks.getStatus.mockResolvedValue({ ...status, active_profile_id: null, profiles: [] });
+    render(<App />);
+    const format = await screen.findByLabelText("规则格式");
+    fireEvent.change(format, { target: { value: "mrs" } });
+    expect((screen.getByLabelText("规则行为") as HTMLSelectElement).value).toBe("domain");
+    expect((screen.getByText("导入规则集") as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -48,7 +48,7 @@ jobs:
           python scripts/package.py
           python scripts/verify_release.py
           python scripts/sanitize_release.py
-      - name: Check the real Linux core without starting TUN
+      - name: Check real Linux rules and provider API without TUN
         run: python scripts/linux_smoke.py
       - uses: actions/upload-artifact@v4
         with:

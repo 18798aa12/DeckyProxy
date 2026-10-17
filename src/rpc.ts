@@ -1,6 +1,6 @@
 import { callable } from "@decky/api";
 import { unwrap } from "./state";
-import type { Group, ProxyMode, Result, Status } from "./types";
+import type { Group, ProxyMode, Result, RuleBehavior, RuleFormat, Status } from "./types";
 
 const getStatus = callable<[], Result<Status>>("get_status");
 const importProfile = callable<[name: string, url: string, content: string], Result<Status>>("import_profile");
@@ -17,6 +17,11 @@ const selectProxy = callable<[group: string, proxy: string], Result<Group[]>>("s
 const testDelay = callable<[name: string], Result<{ delay_ms: number }>>("test_delay");
 const installCore = callable<[], Result<Status>>("install_core");
 const getDiagnostics = callable<[], Result<string>>("get_diagnostics");
+const setSubscriptionInterval = callable<[hours: number], Result<Status>>("set_subscription_interval");
+const setUpdatePreferences = callable<[autoCheck: boolean, autoInstall: boolean], Result<Status>>("set_update_preferences");
+const checkForUpdates = callable<[], Result<Status>>("check_for_updates");
+const installUpdate = callable<[], Result<Status>>("install_update");
+const importRuleProvider = callable<[name: string, url: string, behavior: RuleBehavior, format: RuleFormat, target: string], Result<Status>>("import_rule_provider");
 
 export const backend = {
   getStatus: async (): Promise<Status> => unwrap(await getStatus()),
@@ -34,4 +39,9 @@ export const backend = {
   testDelay: async (name: string): Promise<{ delay_ms: number }> => unwrap(await testDelay(name)),
   installCore: async (): Promise<Status> => unwrap(await installCore()),
   getDiagnostics: async (): Promise<string> => unwrap(await getDiagnostics()),
+  setSubscriptionInterval: async (hours: number): Promise<Status> => unwrap(await setSubscriptionInterval(hours)),
+  setUpdatePreferences: async (autoCheck: boolean, autoInstall: boolean): Promise<Status> => unwrap(await setUpdatePreferences(autoCheck, autoInstall)),
+  checkForUpdates: async (): Promise<Status> => unwrap(await checkForUpdates()),
+  installUpdate: async (): Promise<Status> => unwrap(await installUpdate()),
+  importRuleProvider: async (name: string, url: string, behavior: RuleBehavior, format: RuleFormat, target: string): Promise<Status> => unwrap(await importRuleProvider(name, url, behavior, format, target)),
 };

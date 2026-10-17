@@ -1,0 +1,20 @@
+{
+  "version": "2026-10-17",
+  "commit": "710a1701c53726d183d3b627da03ec9e4bc4ad60",
+  "source_commit": "4178770badecb1b349fbcd62c737e0d7a2079729",
+  "license": "GPL-3.0",
+  "files": {
+    "geoip.dat": {
+      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/710a1701c53726d183d3b627da03ec9e4bc4ad60/geoip.dat",
+      "sha256": "010bfc2e353c5e34e23156004944444ca260bae999e73171bdd7974056557959"
+    },
+    "geosite.dat": {
+      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/710a1701c53726d183d3b627da03ec9e4bc4ad60/geosite.dat",
+      "sha256": "854164d97f88d0d14c520c87bb0f0e2468bb30b01e028d20ac4830de7bd7a3a8"
+    }
+  },
+  "source": {
+    "url": "https://codeload.github.com/MetaCubeX/meta-rules-dat/tar.gz/4178770badecb1b349fbcd62c737e0d7a2079729",
+    "sha256": "6e8d87b0439cfe46618a55f0d8c90fea07450c59f586d1dab48d920f2e5db0a0"
+  }
+}

@@ -12,6 +12,7 @@ import socket
 from pathlib import Path
 
 from .errors import ProxyError
+from .geodata import prepare_geodata
 from .network import fetch_https
 from .storage import atomic_write, private_directory
 
@@ -97,6 +98,8 @@ class Core:
 
     async def validate(self, path: Path) -> None:
         await asyncio.to_thread(self._check)
+        config = json.loads(await asyncio.to_thread(path.read_text))
+        await asyncio.to_thread(prepare_geodata, self.plugin_dir, self.runtime, config)
         process = await self._spawn(
             str(self.binary),
             "-t",

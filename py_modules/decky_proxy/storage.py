@@ -14,6 +14,12 @@ DEFAULTS = {
     "auto_start": False,
     "active_profile_id": None,
     "profiles": [],
+    "schema_version": 2,
+    "subscription_interval_hours": 0,
+    "subscription_last_check": None,
+    "subscription_error": None,
+    "auto_check_updates": True,
+    "auto_install_updates": False,
 }
 
 
@@ -59,8 +65,26 @@ class Store:
             state = {**DEFAULTS, **value}
             if state["mode"] not in ("rule", "global", "direct"):
                 raise ValueError
-            if any(type(state[key]) is not bool for key in ("tun_enabled", "auto_start")):
+            if any(
+                type(state[key]) is not bool
+                for key in (
+                    "tun_enabled",
+                    "auto_start",
+                    "auto_check_updates",
+                    "auto_install_updates",
+                )
+            ):
                 raise ValueError
+            if type(state["subscription_interval_hours"]) is not int or state[
+                "subscription_interval_hours"
+            ] not in (0, 6, 12, 24):
+                raise ValueError
+            if state["auto_install_updates"] and not state["auto_check_updates"]:
+                raise ValueError
+            for key in ("subscription_last_check", "subscription_error"):
+                if state[key] is not None and not isinstance(state[key], str):
+                    raise ValueError
+            state = {**state, "schema_version": 2}
             if not isinstance(state["profiles"], list) or len(state["profiles"]) > 40:
                 raise ValueError
             for profile in state["profiles"]:

@@ -6,6 +6,7 @@ DeckyProxy 的原创代码以 **GPL-3.0-only** 发布，完整文本见 `LICENSE
 | --- | --- | --- |
 | [Mihomo v1.19.32](https://github.com/MetaCubeX/mihomo/tree/v1.19.32) | 原样分发官方 Linux amd64-v1 内核，通过子进程和本地 REST API 控制 | GPL-3.0；安装 ZIP 的 `licenses/MIHOMO-LICENSE`、发布源码附件中的 `third_party/mihomo-v1.19.32.tar.gz` |
 | [PyYAML 6.0.3](https://pypi.org/project/PyYAML/6.0.3/) | 从固定 sdist 提取纯 Python `yaml` 包，不带平台扩展 | MIT；安装 ZIP 的 `py_modules/yaml/LICENSE`、源码附件中的 `third_party/pyyaml-6.0.3.tar.gz` |
+| [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat/tree/4178770badecb1b349fbcd62c737e0d7a2079729) | 固定 2026-10-17 的 `geoip.dat` / `geosite.dat`，按锁文件校验，离线复制给内核 | 上游 GPL-3.0；ZIP 的 `licenses/GEO-DATA-LICENSE`，源码附件中的 `third_party/meta-rules-dat-source.tar.gz` 为锁定生成脚本、上游声明与数据来源说明；数据来自 release 分支固定提交，见 `assets/geodata-lock.json` |
 | [@decky/api 1.1.3](https://github.com/SteamDeckHomebrew/loader-api) | Decky 前后端 RPC 辅助代码，部分进入前端 bundle | LGPL-2.1；安装 ZIP 的 `licenses/decky-api-LICENSE`、源码附件的 `third_party/frontend/decky-api/` 包含完整发布包及 `src/` |
 | [react-icons 5.5.0](https://github.com/react-icons/react-icons) | 前端图标封装和 Font Awesome 的 `FaNetworkWired` | 封装 MIT，Font Awesome 图标 CC BY 4.0；完整说明位于安装 ZIP 的 `licenses/react-icons-LICENSE`，源码附件含使用的 `fa/`、`lib/` |
 | [tslib 2.8.1](https://github.com/microsoft/tslib) | TypeScript 生成代码可能用到的运行时辅助函数 | 0BSD；安装 ZIP 的 `licenses/tslib-LICENSE`，源码附件含对应发布包 |

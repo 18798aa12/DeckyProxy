@@ -115,12 +115,14 @@ def scan_bytes(content: bytes, name: str, location: str) -> list[Finding]:
             f"DeckyProxy/third_party/mihomo-{lock['version']}.tar.gz": lock["source"]["sha256"],
             "DeckyProxy/third_party/pyyaml-6.0.3.tar.gz": lock["pyyaml"]["sha256"],
         }
+        geo = json.loads((ROOT / "assets/geodata-lock.json").read_text())
+        trusted["DeckyProxy/third_party/meta-rules-dat-source.tar.gz"] = geo["source"]["sha256"]
         if name not in trusted:
             return [Finding(location, "unexpected-embedded-archive")]
         if hashlib.sha256(content).hexdigest() != trusted[name]:
             return [Finding(location, "upstream-hash-mismatch")]
         return []
-    # Scan all plaintext, including vendored frontend source. Only the two
+    # Scan all plaintext, including vendored frontend source. Only the exact
     # exact, hash-verified upstream archives above retain unscanned test keys.
     suffix = PurePosixPath(name).suffix
     if suffix not in TEXT_SUFFIXES and PurePosixPath(name).name not in {"LICENSE", ".gitignore"}:

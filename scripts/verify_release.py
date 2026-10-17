@@ -31,6 +31,11 @@ def verify_zip(path: Path) -> dict:
             "package.json",
             "bin/mihomo",
             "assets/core-lock.json",
+            "assets/geodata-lock.json",
+            "assets/update-allowed-signers",
+            "bin/geodata/geoip.dat",
+            "bin/geodata/geosite.dat",
+            "licenses/GEO-DATA-LICENSE",
             "LICENSE",
             "THIRD_PARTY_NOTICES.md",
             "README.md",
@@ -62,6 +67,20 @@ def verify_zip(path: Path) -> dict:
             )
         lock = json.loads(archive.read("DeckyProxy/assets/core-lock.json"))
         core = archive.read("DeckyProxy/bin/mihomo")
+        geo = json.loads(archive.read("DeckyProxy/assets/geodata-lock.json"))
+        for name, spec in geo["files"].items():
+            require(name in {"geoip.dat", "geosite.dat"}, "Unexpected GEO data file")
+            require(
+                hashlib.sha256(archive.read(f"DeckyProxy/bin/geodata/{name}")).hexdigest()
+                == spec["sha256"],
+                "Bundled GEO data SHA256 mismatch",
+            )
+        require(
+            archive.read("DeckyProxy/assets/update-allowed-signers").startswith(
+                b"deckyproxy-release "
+            ),
+            "Release verification key missing",
+        )
         require(
             core[:6] == b"\x7fELF\x02\x01" and core[18:20] == b"\x3e\x00", "Core is not Linux amd64"
         )
@@ -84,9 +103,17 @@ def verify_zip(path: Path) -> dict:
 def verify_source(path: Path, lock: dict) -> None:
     """Require exact upstream archives and editable bundled LGPL library source."""
     with tarfile.open(path, "r:gz") as archive:
+        geo = json.loads((ROOT / "assets/geodata-lock.json").read_text())
         members = {member.name: member for member in archive.getmembers()}
         require("DeckyProxy/scripts/package.py" in members, "Source bundle lacks build script")
         require("DeckyProxy/pnpm-lock.yaml" in members, "Source bundle lacks frontend lock")
+        geo_member = archive.extractfile("DeckyProxy/third_party/meta-rules-dat-source.tar.gz")
+        require(geo_member is not None, "Source bundle lacks GEO data build scripts")
+        if geo_member:
+            require(
+                hashlib.sha256(geo_member.read()).hexdigest() == geo["source"]["sha256"],
+                "GEO build scripts source SHA256 mismatch",
+            )
         require(
             any(
                 name.startswith("DeckyProxy/third_party/frontend/decky-api/src/")

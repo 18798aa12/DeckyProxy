@@ -7,7 +7,7 @@ export const modeOptions: ReadonlyArray<{ data: ProxyMode; label: string }> = [
 ];
 
 export const modeDescription: Record<ProxyMode, string> = {
-  rule: "局域网直连，其余流量走所选代理。使用插件内置规则。",
+  rule: "按照当前配置的规则和策略组分流。",
   global: "经代理接管的流量统一走 GLOBAL 组所选节点。",
   direct: "经代理接管的流量直接连接。",
 };

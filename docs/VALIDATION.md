@@ -1,49 +1,37 @@
-# 验证记录
+# v0.2 验证记录
 
-日期：**2026-10-18**。以下记录针对本地 0.1.0 源码与发布包，开发主机为 macOS / Apple Silicon。
+日期：**2026-10-18**。开发主机为 macOS / Apple Silicon。**尚未完成 Steam Deck 真机验收**；本记录不把自动化检查当作 TUN、DNS、UDP、休眠或真实 Decky 升级已通过。
 
-**尚未进行 Steam Deck 真机验收。** 当前检查证明源码、用户态内核控制与打包流程可运行，不能证明 SteamOS 的 TUN 路由、DNS 接管、UDP、待机唤醒或卸载后网络恢复正常。
+## 本地检查
 
-## 已完成
+- TypeScript 类型检查、30 项前端测试、Rollup 生产构建通过。
+- Python 全量测试、80% 覆盖率门槛、Ruff 与差异空白检查通过；精确数量与覆盖率见对应提交的 CI 输出。
+- 回归覆盖原规则/策略组、HTTP/inline provider、YAML/text/MRS、旧版迁移、订阅更新失败保留旧配置、下载期间停止代理、自动安装开关竞态、缓存清理。
+- 安全回归覆盖 YAML 合并展开限制、MRS 内部长度限制、私有文件路径、URL/重定向/DNS 检查、错误签名/哈希、ZIP 路径与类型、更新助手健康失败/回滚/断电状态恢复。
+- General、TypeScript 和 Python 独立代码审查完成。发现的 YAML/MRS 内存边界、规则文件格式、更新启动失败状态等问题已修复并补回归。
+- `pnpm audit --prod` 无已知漏洞；这不覆盖全部开发依赖或证明内核无漏洞。
 
-| 检查 | 实际结果 |
-| --- | --- |
-| Python 后端与发布测试 | **84 passed，1 skipped**（含 7 项脱敏检查回归）；后端覆盖率 **88.13%** |
-| Linux runner 回归 | 已添加真实父进程死亡回归测试；在 macOS 跳过，需 Linux 运行验证 |
-| 前端测试 | **21 tests passed** |
-| TypeScript / 前端构建 | `pnpm typecheck`、`pnpm build` 通过；最终 `dist/index.js` 为 30,382 bytes |
-| 固定依赖安装 | pnpm **9.15.9** 的 `CI=true pnpm install --frozen-lockfile` 实际通过，无锁文件变更；安装后再次通过 typecheck、21 个前端测试和 build |
-| Python 静态检查 | `ruff check main.py py_modules scripts tests` 通过 |
-| 生产依赖审计 | `pnpm audit --prod` 返回 **No known vulnerabilities found**；这不覆盖测试依赖或证明代理内核没有漏洞 |
-| 代码审查 | Python reviewer 与 general code review 通过；没有剩余 P1/P2 问题 |
-| 发布工具错误路径 | 错误 SHA256 被拒绝且无临时缓存残留；已验证缓存复用；HTTP 输入与源码符号链接被拒绝 |
-| ZIP / 源码附件审计 | 校验 Linux ELF 架构与固定 SHA256、核心执行权限、纯 Python YAML 包、许可证、源码附件和私密数据排除；每次发布可重跑 `scripts/verify_release.py` |
-| 公开发布脱敏 | `scripts/sanitize_release.py` 检查 Git 源码和两份归档，输出位置/类别/行号，不输出秘密值；只对两份 SHA256 已验证的精确上游归档作豁免 |
+## 真实内核
 
-依赖审计是截至检查时公开漏洞数据库的结果，并不替代代码审查、更新评估或真实设备验证。
+使用已核对压缩包 SHA256 的官方 Mihomo v1.19.32 Darwin arm64（`3312a6780652c622890fd4357c6a853bbf865464fd047ac7b7f52dab8de18652`）：
 
-## 实际内核检查
+- 通过基础配置与原始策略组、provider、GEO 规则的 `-t` 校验。
+- 实际加载 GEOIP CN **10009** 条记录、GeoSite CN **110534** 条记录。
+- 实际转换 MRS，短时启动关闭 TUN/代理监听/DNS 的内核，通过鉴权回环 API 确认 classical、inline、MRS 规则集数量非零。
+- 测试结束停止自有进程；未修改主机路由或系统 DNS。
 
-下载官方 **Mihomo v1.19.32 darwin-arm64** 压缩包，并核对 SHA256：
+发布 ZIP 内只含 Linux amd64-v1 内核。Linux CI 额外运行真实内核同样的配置/规则 API 检查、父进程死亡保护及真实 `renameat2(RENAME_EXCHANGE)` 回归；详见[CI 运行记录](https://github.com/18798aa12/DeckyProxy/actions)。本地不执行 Linux ELF。
 
-```text
-3312a6780652c622890fd4357c6a853bbf865464fd047ac7b7f52dab8de18652
-```
+更新助手的服务重启与新后端健康确认在单元测试中替换为受控调用；实际目录交换在 Linux 检查。**跨真实 Decky 服务重启、Steam Deck 权限布局和设备断电恢复仍待实机验证**。
 
-- 将插件生成的 TUN 关闭和 TUN 开启两种配置分别交给该内核执行 **`-t` 配置校验**，均通过。TUN 开启配置只做解析校验，没有在主机启动 TUN。
-- 仅使用 **TUN 关闭**的配置启动 macOS 用户态内核，实际请求 `GET /version`、`GET /configs`、`GET /proxies` 均成功，随后停止进程。
-- 未修改主机 DNS 配置或系统路由，未使用该内核接管 macOS 系统网络。
+## 打包与隐私
 
-安装 ZIP 内是 **Linux amd64-v1** 内核，不包含 macOS 内核。Linux 资产已验证官方固定压缩 SHA256、展开 SHA256 和 ELF64 x86_64 标识；**本机没有执行 Linux 内核**。无可用 Docker daemon，因此没有本地 Linux 容器结果。CI 定义了 Linux `-v` / `-t` 检查，但未将未运行的 CI 当作已经通过。
+安装 ZIP 包含已锁定内核、离线 GEO 数据、纯 Python PyYAML、更新公钥、插件前后端、说明和许可证。对应源码附件包含本项目代码、构建脚本、精确版本内核/PyYAML 源码、GEO 生成脚本和用到的前端库源码。
 
-本地 HTTP API 可响应或 `-t` 成功不代表 TUN、DNS、UDP 和公网连通性健康；界面的运行状态也不能替代这些实测。
+`verify_release.py` 核对实际 ZIP/source 的架构、哈希、必需文件、许可与权限；`sanitize_release.py` 检查源码及归档，不输出匹配的秘密值，仅对三个精确 SHA256 的上游源码归档作限定豁免。发行清单在仓库外私钥签名后立即用打包公钥验签；SHA256SUMS 随发布提供。
 
-## 私密存储与分发核验
+个人订阅、URL 密钥、运行配置、控制器 secret、日志、私钥和开发环境均不进入发布。个人数据只在 `DECKY_PLUGIN_SETTINGS_DIR`，不放在 Decky 可公开静态读取的 runtime 目录。
 
-设置位于 `DECKY_PLUGIN_SETTINGS_DIR/settings.json`，订阅与节点位于 `profiles/*.json`，含 secret 的运行/候选配置、缓存和后装内核位于 `backend/`。可被 Decky 静态 HTTP 暴露的 `DECKY_PLUGIN_RUNTIME_DIR` 不应保存这些数据。
+## 仍需实机
 
-发布 ZIP 按允许列表生成，包含 Linux 内核、插件前后端代码、纯 Python PyYAML、说明和许可证，不包含个人 settings、订阅、运行配置、日志、虚拟环境、Node 开发依赖或 macOS `.so`。源码附件包含项目源码、构建脚本和精确版本的上游源码压缩包。产物最终校验值见发布目录的 `SHA256SUMS`。
-
-## 待 Steam Deck 实测
-
-完整步骤见[真机检查表](STEAM_DECK_TESTING.md)。优先验证 Decky 安装和手柄交互、TUN 实际接管、DNS/UDP、节点与模式切换、Wi-Fi/扩展坞切换、待机唤醒、异常退出和停止/卸载后的直连恢复。完成这些检查前，版本应视作**待真机验收的首版**。
+执行[Steam Deck 检查表](STEAM_DECK_TESTING.md)，尤其验证安装与手柄输入、TUN 接管、DNS/UDP、Wi-Fi 切换、待机唤醒、停止/卸载后的直连恢复以及实际插件自更新。

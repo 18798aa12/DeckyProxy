@@ -8,12 +8,15 @@ import decky
 from decky_proxy.controller import Controller
 from decky_proxy.core import Core
 from decky_proxy.errors import ProxyError
+from decky_proxy.maintenance import Maintenance
 from decky_proxy.service import ProxyService
 from decky_proxy.storage import Store
+from decky_proxy.updates import UpdateManager
 
 
 class Plugin:
     service: ProxyService | None = None
+    maintenance: Maintenance | None = None
 
     async def _main(self) -> None:
         secret = secrets.token_urlsafe(32)
@@ -28,14 +31,22 @@ class Plugin:
             Controller(secret),
             secret,
         )
-        if (await self.service.get_status())["auto_start"]:
+        self.service.updates = UpdateManager(Path(decky.DECKY_PLUGIN_DIR), runtime, "0.2.0")
+        await self.service.updates.recover()
+        state = await self.service.get_status()
+        if state["auto_start"] and state["update"]["state"] != "installing":
             try:
                 await self.service.start_proxy()
             except Exception as error:
                 self.service.last_error = "自动启动失败，请检查网络后手动启动"
                 decky.logger.error("DeckyProxy automatic start failed: %s", type(error).__name__)
+        self.maintenance = Maintenance(self.service)
+        self.maintenance.start()
+        self.service.updates.mark_healthy()
 
     async def _unload(self) -> None:
+        if self.maintenance:
+            await self.maintenance.close()
         if self.service:
             await asyncio.shield(self.service.stop_proxy())
 
@@ -98,3 +109,20 @@ class Plugin:
 
     async def get_diagnostics(self) -> dict:
         return await self._call("get_diagnostics")
+
+    async def import_rule_provider(
+        self, name: str, url: str, behavior: str, format: str, target: str
+    ) -> dict:
+        return await self._call("import_rule_provider", name, url, behavior, format, target)
+
+    async def set_subscription_interval(self, hours: int) -> dict:
+        return await self._call("set_subscription_interval", hours)
+
+    async def set_update_preferences(self, auto_check: bool, auto_install: bool) -> dict:
+        return await self._call("set_update_preferences", auto_check, auto_install)
+
+    async def check_for_updates(self) -> dict:
+        return await self._call("check_for_updates")
+
+    async def install_update(self) -> dict:
+        return await self._call("install_update")

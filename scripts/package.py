@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 
 from build_common import ROOT, atomic_bytes, download_verified, load_lock, sha256_file
 from fetch_core import fetch_core
+from fetch_geodata import fetch_geodata
 
 PLUGIN_NAME = "DeckyProxy"
 RELEASE = ROOT / "release"
@@ -66,12 +67,15 @@ def vendor_yaml(destination: Path) -> Path:
 def stage_plugin(destination: Path) -> tuple[Path, Path]:
     """Copy an explicit allowlist, never settings, logs, caches or credentials."""
     binary, core_source = fetch_core()
+    geodata_files = fetch_geodata()
     required = (
         "dist/index.js",
         "main.py",
         "plugin.json",
         "package.json",
         "assets/core-lock.json",
+        "assets/geodata-lock.json",
+        "assets/update-allowed-signers",
         "LICENSE",
         "THIRD_PARTY_NOTICES.md",
         "README.md",
@@ -94,6 +98,9 @@ def stage_plugin(destination: Path) -> tuple[Path, Path]:
         if path.suffix == ".md":
             atomic_bytes(destination / "docs" / path.relative_to(documentation), path.read_bytes())
     atomic_bytes(destination / "bin" / "mihomo", binary.read_bytes(), 0o755)
+    for path in geodata_files:
+        atomic_bytes(destination / "bin" / "geodata" / path.name, path.read_bytes())
+    atomic_bytes(destination / "licenses" / "GEO-DATA-LICENSE", (ROOT / "LICENSE").read_bytes())
     yaml_source = vendor_yaml(destination)
     atomic_bytes(destination / "licenses" / "MIHOMO-LICENSE", (ROOT / "LICENSE").read_bytes())
     for name, module in frontend_modules().items():
@@ -196,6 +203,10 @@ def add_tar_file(archive: tarfile.TarFile, path: Path, name: str) -> None:
 
 def build_source_bundle(target: Path, core_source: Path, yaml_source: Path) -> None:
     """Include exact upstream archives alongside all plugin/build source code."""
+    geo_lock = json.loads((ROOT / "assets" / "geodata-lock.json").read_text())
+    geo_source = download_verified(
+        geo_lock["source"], "meta-rules-dat-source.tar.gz", maximum_bytes=4 * 1024 * 1024
+    )
     temporary = target.with_suffix(".gz.tmp")
     try:
         with temporary.open("wb") as output:
@@ -205,7 +216,7 @@ def build_source_bundle(target: Path, core_source: Path, yaml_source: Path) -> N
                         add_tar_file(
                             archive, path, f"{PLUGIN_NAME}/{path.relative_to(ROOT).as_posix()}"
                         )
-                    for path in (core_source, yaml_source):
+                    for path in (core_source, yaml_source, geo_source):
                         add_tar_file(archive, path, f"{PLUGIN_NAME}/third_party/{path.name}")
                     for path, name in frontend_sources():
                         add_tar_file(archive, path, name)

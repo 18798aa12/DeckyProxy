@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { GroupPanel } from "./GroupPanel";
 import { ProfilePanel } from "./ProfilePanel";
+import { RulePanel } from "./RulePanel";
+import { AutomationPanel } from "./AutomationPanel";
 import { backend } from "./rpc";
 import { formatDelay, safeError } from "./state";
 import { styles } from "./styles";
@@ -157,6 +159,9 @@ export function App() {
     }
   };
 
+  const updating = ["preparing", "installing"].includes(status?.update?.state ?? "idle");
+  const controlsBusy = busy !== null || updating;
+
   return <>
     <div aria-live="polite">
       {busy && <div style={styles.note}>{busy}</div>}
@@ -164,18 +169,20 @@ export function App() {
     </div>
     {error && <div role="alert" style={styles.error}>{error}</div>}
     {status && <>
-      <ConnectionPanel status={status} busy={busy !== null} run={run} />
-      <GroupPanel groups={groups} busy={busy !== null} running={status.running}
+      <ConnectionPanel status={status} busy={controlsBusy} run={run} />
+      <GroupPanel groups={groups} busy={controlsBusy} running={status.running}
         onSelect={(group, proxy) => { void runGroupAction(() => backend.selectProxy(group, proxy), "节点已切换"); }}
         onTest={(name) => { void testDelay(name); }} />
-      <ProfilePanel status={status} busy={busy !== null} run={run} />
+      <ProfilePanel status={status} busy={controlsBusy} run={run} />
+      <RulePanel status={status} groups={groups} busy={controlsBusy} run={run} />
+      <AutomationPanel status={status} busy={busy !== null} run={run} />
     </>}
     <PanelSection title="维护">
       <PanelSectionRow>
-        <ButtonItem layout="below" disabled={busy !== null} onClick={() => { void run("状态已刷新", backend.getStatus); }}>刷新状态</ButtonItem>
+        <ButtonItem layout="below" disabled={controlsBusy} onClick={() => { void run("状态已刷新", backend.getStatus); }}>刷新状态</ButtonItem>
       </PanelSectionRow>
       <PanelSectionRow>
-        <ButtonItem layout="below" disabled={busy !== null}
+        <ButtonItem layout="below" disabled={controlsBusy}
           description="查看运行状态与安全诊断摘要。"
           onClick={() => { void readDiagnostics(); }}>查看诊断</ButtonItem>
         {diagnostics && <pre style={styles.diagnostics}>{diagnostics}</pre>}

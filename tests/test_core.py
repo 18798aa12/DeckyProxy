@@ -112,8 +112,10 @@ async def test_normal_stop_and_timeout_kill_are_reaped(core):
         assert core._process is None
 
 
-async def test_validate_handles_nonzero_exit_and_timeout(core, monkeypatch):
+async def test_validate_handles_nonzero_exit_and_timeout(core, monkeypatch, tmp_path):
     monkeypatch.setattr(core, "_check", lambda: None)
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}")
     for process in [FakeProcess(0), FakeProcess(1), FakeProcess(timeout=True)]:
 
         async def spawn(*args, value=process, **kwargs):
@@ -123,10 +125,10 @@ async def test_validate_handles_nonzero_exit_and_timeout(core, monkeypatch):
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
         if process.returncode == 0:
-            await core.validate(Path("config"))
+            await core.validate(config_path)
         else:
             with pytest.raises((ProxyError, TimeoutError)):
-                await core.validate(Path("config"))
+                await core.validate(config_path)
 
 
 async def test_start_uses_argv_parent_guard_and_only_owned_process(core, monkeypatch):

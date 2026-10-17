@@ -68,6 +68,11 @@ async def test_every_rpc_matches_backend_contract(plugin):
         "test_delay": ("node",),
         "install_core": (),
         "get_diagnostics": (),
+        "import_rule_provider": ("rules", "url", "domain", "yaml", "DIRECT"),
+        "set_subscription_interval": (6,),
+        "set_update_preferences": (True, False),
+        "check_for_updates": (),
+        "install_update": (),
     }
     for name, args in calls.items():
         assert await getattr(instance, name)(*args) == {
@@ -86,3 +91,33 @@ async def test_sensitive_runtime_is_outside_decky_static_data(plugin, monkeypatc
     assert not module.Path(module.decky.DECKY_PLUGIN_RUNTIME_DIR).exists()
     assert not (await instance.get_status())["data"]["auto_start"]
     await instance._unload()
+
+
+async def test_failed_initialization_does_not_mark_update_healthy(plugin, monkeypatch):
+    from tests.test_service import FakeCore
+
+    module, instance = plugin
+    marked = []
+
+    class Updater:
+        def __init__(self, *args):
+            pass
+
+        async def recover(self):
+            pass
+
+        def mark_healthy(self):
+            marked.append(True)
+
+        def status(self):
+            return {"state": "idle"}
+
+    def fail_maintenance(service):
+        raise ProxyError("维护计划损坏")
+
+    monkeypatch.setattr(module, "Core", lambda *args: FakeCore())
+    monkeypatch.setattr(module, "UpdateManager", Updater)
+    monkeypatch.setattr(module, "Maintenance", fail_maintenance)
+    with pytest.raises(ProxyError):
+        await instance._main()
+    assert not marked

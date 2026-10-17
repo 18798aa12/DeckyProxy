@@ -23,6 +23,7 @@ export function ProfilePanel({ status, busy, run }: Props) {
     ?? status.profiles.find((item) => item.id === status.active_profile_id)
     ?? status.profiles[0];
   const active = selected?.id === status.active_profile_id;
+  const summary = status.active_profile_summary;
 
   const importProfile = async (): Promise<void> => {
     setError(null);
@@ -34,6 +35,14 @@ export function ProfilePanel({ status, busy, run }: Props) {
   };
 
   return <PanelSection title="配置">
+    {summary && <PanelSectionRow>
+      <div style={styles.note}>
+        {summary.source_rules
+          ? `已保留原配置：${summary.rules} 条规则 · ${summary.groups} 个策略组 · ${summary.rule_providers} 个规则集`
+          : `当前配置：${summary.rules} 条规则 · ${summary.groups} 个策略组 · ${summary.rule_providers} 个规则集`}
+      </div>
+      {summary.legacy && <div style={styles.note}>旧版配置只保存了节点。点击“更新此订阅”恢复原有规则和策略组；本地 YAML 请重新导入。</div>}
+    </PanelSectionRow>}
     {status.profiles.length > 0 && <>
       <PanelSectionRow>
         <DropdownItem label="配置文件" disabled={busy} selectedOption={selected?.id}
@@ -65,7 +74,7 @@ export function ProfilePanel({ status, busy, run }: Props) {
       </>}
     </>}
     <PanelSectionRow>
-      <div style={styles.note}>导入 Clash YAML 订阅或文本。只使用节点；系统设置与规则由插件管理。导入后选择配置，再启用代理。</div>
+      <div style={styles.note}>导入 Clash YAML 订阅或文本，保留原有规则、规则集和策略组。端口、DNS 与 TUN 由插件管理。</div>
       <TextField label="配置名称" value={name} disabled={busy} onChange={(event) => { setName(event.target.value); }} />
     </PanelSectionRow>
     <PanelSectionRow>
