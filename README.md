@@ -18,6 +18,19 @@
 
 ## 在 Steam Deck 安装
 
+### 大陆网络下载
+
+GitHub 直连或短链接无法访问时，可尝试以下第三方加速线路；两条线路已完整下载并核对安装 ZIP 的 SHA256 与官方发布一致，但尚未在每个大陆运营商网络上实测。
+
+- [加速下载一（ghfast.top）](https://ghfast.top/https://github.com/18798aa12/DeckyProxy/releases/download/v0.1.0/DeckyProxy-0.1.0.zip)
+- [加速下载二（gh-proxy.org）](https://gh-proxy.org/https://github.com/18798aa12/DeckyProxy/releases/download/v0.1.0/DeckyProxy-0.1.0.zip)
+
+下载 ZIP 后可在 Decky 的“从 ZIP 安装插件”入口安装；也可将上述加速链接粘贴到“从 URL 安装插件”。安装 ZIP 已包含内核，无需先从 GitHub 下载内核。
+
+校验值：`3e6ef4045cbbc531ede5aaf4a98f82c6a8da72376b97a4d5a29ce44a61fd5394`。精确版本源码附件仍随 [v0.1.0 发布](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.1.0)提供。
+
+### 原始发布链接
+
 公开测试包可通过 Decky **设置 → 开发者 → 从 URL 安装插件**，粘贴以下链接安装：
 
 ```text
