@@ -4,7 +4,9 @@
 
 这是独立项目。安装包面向 **SteamOS / Linux x86_64**；macOS 只用于开发、测试和打包。**尚未完成 Steam Deck 真机验收**，请先阅读[真机检查表](docs/STEAM_DECK_TESTING.md)。
 
-## v0.2.5 功能
+## v0.2.6 功能
+
+v0.2.6 修复开启 TUN 后检查更新失败：GitHub 发行资源和更新镜像域名使用真实 DNS 解析，避免虚拟 IP 被下载器的保留地址保护拦截；保留 HTTPS、地址校验和签名验证。
 
 v0.2.5 修复 SteamOS Python 3.13 将空筛选结果解析为 `FAILURE` 时误报“过于复杂”的兼容问题，新增 Python 3.13 CI。统一从安装包读取插件版本，修复更新器版本号与状态显示不一致导致的重复更新提示或健康确认失败；新增版本一致性回归。
 
@@ -45,26 +47,26 @@ v0.1 没有更新模块，需要手动安装一次 v0.2 ZIP。个人配置保持
 
 GitHub 直连或短链接无法访问时，可尝试以下第三方加速线路；加速站只传输公开安装包；网络可用性取决于运营商。使用同版本 SHA256SUMS 核对安装包，或在 v0.2 内使用发行签名验证的更新。
 
-- [加速下载一（ghfast.top）](https://ghfast.top/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.5/DeckyProxy-0.2.5.zip)
-- [加速下载二（gh-proxy.org）](https://gh-proxy.org/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.5/DeckyProxy-0.2.5.zip)
+- [加速下载一（ghfast.top）](https://ghfast.top/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.6/DeckyProxy-0.2.6.zip)
+- [加速下载二（gh-proxy.org）](https://gh-proxy.org/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.6/DeckyProxy-0.2.6.zip)
 
 下载 ZIP 后可在 Decky 的“从 ZIP 安装插件”入口安装；也可将上述加速链接粘贴到“从 URL 安装插件”。安装 ZIP 已包含内核，无需先从 GitHub 下载内核。
 
-校验值见同次发布的 `SHA256SUMS`。精确版本源码附件随 [v0.2.5 发布](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.5)提供。
+校验值见同次发布的 `SHA256SUMS`。精确版本源码附件随 [v0.2.6 发布](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.6)提供。
 
 ### 原始发布链接
 
 公开测试包可通过 Decky **设置 → 开发者 → 从 URL 安装插件**，粘贴以下链接安装：
 
 ```text
-https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.5/DeckyProxy-0.2.5.zip
+https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.6/DeckyProxy-0.2.6.zip
 ```
 
-也可以在 [GitHub Releases](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.5) 下载 ZIP 后按下面步骤安装。当前版本**未上架官方商店**，原因与条件见[发布说明](docs/PUBLISHING.md)。
+也可以在 [GitHub Releases](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.6) 下载 ZIP 后按下面步骤安装。当前版本**未上架官方商店**，原因与条件见[发布说明](docs/PUBLISHING.md)。
 
 1. 先安装并确认 [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) 正常工作。
 2. **停止其他 Clash / VPN / TUN 代理**，包括 ToMoon、DeckyClash 或桌面模式里运行的代理客户端，避免争用路由和 DNS。
-3. 将 `release/DeckyProxy-0.2.5.zip` 传到 Deck。可先在电脑核对同目录 `SHA256SUMS`：Linux 使用 `sha256sum -c SHA256SUMS`，macOS 使用 `shasum -a 256 -c SHA256SUMS`。
+3. 将 `release/DeckyProxy-0.2.6.zip` 传到 Deck。可先在电脑核对同目录 `SHA256SUMS`：Linux 使用 `sha256sum -c SHA256SUMS`，macOS 使用 `shasum -a 256 -c SHA256SUMS`。
 4. 打开 Decky 设置，启用开发者模式，在“开发者”里的“从 ZIP 安装插件”选择安装包。Decky 版本不同，入口文字可能略有差异；本项目尚未上架插件商店。
 5. 在 QAM 打开 **DeckyProxy**，点击“选择 YAML 文件并导入”，选择先前下载的配置；也可输入名称和公网 HTTPS 订阅，点击“导入配置”。然后选择要使用的配置。
 6. 检查模式和 TUN 设置后，手动打开“启用代理”。通常游戏与 Steam 系统流量需要 TUN；关闭 TUN 时只启动本地 HTTP / SOCKS 混合代理端口 `127.0.0.1:19790`，应用需自行使用该代理。
@@ -110,8 +112,8 @@ python3 -m venv .venv
 
 ```text
 release/
-├── DeckyProxy-0.2.5.zip
-├── DeckyProxy-0.2.5-source.tar.gz
+├── DeckyProxy-0.2.6.zip
+├── DeckyProxy-0.2.6-source.tar.gz
 ├── SHA256SUMS
 ├── update.json       # 发行者单独签名后生成
 └── update.json.sig

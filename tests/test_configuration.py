@@ -1,4 +1,5 @@
 import copy
+from urllib.parse import urlsplit
 
 import pytest
 from decky_proxy.configuration import build_config, parse_subscription
@@ -84,3 +85,18 @@ def test_empty_and_invalid_mode_rejected():
         build_config([], mode="rule", tun=True, secret="x")
     with pytest.raises(ProxyError):
         build_config([{}], mode="invalid", tun=True, secret="x")
+
+
+def test_update_downloads_resolve_real_public_addresses_while_tun_is_enabled():
+    from decky_proxy.update_manifest import MANIFEST_URL, MIRRORS
+
+    nodes, _ = parse_subscription(YAML)
+    config = build_config(nodes, mode="rule", tun=True, secret="x")
+    filters = set(config["dns"]["fake-ip-filter"])
+    hosts = {urlsplit(prefix + MANIFEST_URL).hostname for prefix in MIRRORS}
+    hosts |= {"api.github.com", "release-assets.githubusercontent.com",
+              "objects.githubusercontent.com", "raw.githubusercontent.com"}
+    assert hosts <= filters
+    assert "*" not in filters
+    assert config["dns"]["enhanced-mode"] == "fake-ip"
+    assert config["profile"]["store-fake-ip"] is False

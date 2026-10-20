@@ -165,7 +165,14 @@ def build_config(nodes: list[dict] | dict, *, mode: str, tun: bool, secret: str)
             "ipv6": False,
             "enhanced-mode": "fake-ip",
             "fake-ip-range": "198.18.0.1/16",
-            "fake-ip-filter": ["*.lan", "*.local", "+.steamcontent.com", "+.steamserver.net"],
+            # The safe downloader rejects reserved addresses. Update endpoints
+            # need real DNS answers even while this plugin owns the fake-IP TUN.
+            "fake-ip-filter": [
+                "*.lan", "*.local", "+.steamcontent.com", "+.steamserver.net",
+                "github.com", "api.github.com", "release-assets.githubusercontent.com",
+                "objects.githubusercontent.com", "raw.githubusercontent.com",
+                "ghfast.top", "gh-proxy.org",
+            ],
             "default-nameserver": ["223.5.5.5", "1.1.1.1"],
             "nameserver": ["https://dns.alidns.com/dns-query", "https://1.1.1.1/dns-query"],
             "proxy-server-nameserver": ["https://dns.alidns.com/dns-query"],

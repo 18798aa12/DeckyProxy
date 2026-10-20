@@ -12,6 +12,7 @@ from decky_proxy.network import fetch_https, public_addresses, validate_url
         "file:///etc/shadow",
         "https://user:pass@example.com",
         "https://127.0.0.1/a",
+        "https://198.18.0.2/a",
         "https://[::1]/",
         "https://localhost/x",
         "https://example.com:22/x",
@@ -38,6 +39,13 @@ def test_dns_rejects_any_private_answer(monkeypatch):
     )
     with pytest.raises(ProxyError):
         public_addresses("example.com", 443)
+
+
+def test_fake_ip_answers_are_still_rejected_by_the_safe_downloader(monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("198.18.0.2", 443))])
+    with pytest.raises(ProxyError, match="保留地址"):
+        public_addresses("github.com", 443)
 
 
 def test_dns_errors_do_not_expose_url(monkeypatch):
