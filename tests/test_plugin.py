@@ -1,6 +1,8 @@
 import importlib
+import json
 import logging
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -93,6 +95,28 @@ async def test_sensitive_runtime_is_outside_decky_static_data(plugin, monkeypatc
     assert not module.Path(module.decky.DECKY_PLUGIN_RUNTIME_DIR).exists()
     assert not (await instance.get_status())["data"]["auto_start"]
     await instance._unload()
+
+
+async def test_updater_and_status_use_the_installed_package_version(plugin, monkeypatch):
+    from tests.test_service import FakeCore
+
+    module, instance = plugin
+    versions = []
+    original = module.UpdateManager
+
+    def capture(plugin_dir, runtime, version):
+        versions.append(version)
+        return original(plugin_dir, runtime, version)
+
+    monkeypatch.setattr(module, "Core", lambda *args: FakeCore())
+    monkeypatch.setattr(module, "UpdateManager", capture)
+    await instance._main()
+    try:
+        expected = json.loads((Path(__file__).parents[1] / "package.json").read_text())["version"]
+        assert versions == [expected]
+        assert (await instance.get_status())["data"]["version"] == expected
+    finally:
+        await instance._unload()
 
 
 async def test_failed_initialization_does_not_mark_update_healthy(plugin, monkeypatch):

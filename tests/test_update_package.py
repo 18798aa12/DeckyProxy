@@ -25,6 +25,7 @@ def package(version="0.2.1", extra=None):
         "DeckyProxy/py_modules/decky_proxy/update_helper.py": b"# helper\n",
         "DeckyProxy/py_modules/decky_proxy/safe_regex.py": b"# filter normalization\n",
         "DeckyProxy/py_modules/decky_proxy/regex_worker.py": b"# isolated worker\n",
+        "DeckyProxy/py_modules/decky_proxy/version.py": b"# installed package version\n",
     }
     files.update(extra or {})
     result = io.BytesIO()
@@ -36,7 +37,7 @@ def package(version="0.2.1", extra=None):
     return result.getvalue()
 
 
-@pytest.mark.parametrize("module", ["safe_regex.py", "regex_worker.py"])
+@pytest.mark.parametrize("module", ["safe_regex.py", "regex_worker.py", "version.py"])
 def test_update_requires_complete_filter_runtime(tmp_path, module):
     source = io.BytesIO(package())
     result = io.BytesIO()

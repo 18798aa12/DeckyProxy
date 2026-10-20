@@ -48,6 +48,7 @@ def verify_zip(path: Path) -> dict:
             "py_modules/yaml/LICENSE",
             "py_modules/decky_proxy/safe_regex.py",
             "py_modules/decky_proxy/regex_worker.py",
+            "py_modules/decky_proxy/version.py",
             "licenses/MIHOMO-LICENSE",
             "licenses/decky-api-LICENSE",
             "licenses/react-icons-LICENSE",

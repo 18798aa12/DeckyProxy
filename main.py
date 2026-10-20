@@ -12,6 +12,7 @@ from decky_proxy.maintenance import Maintenance
 from decky_proxy.service import ProxyService
 from decky_proxy.storage import Store
 from decky_proxy.updates import UpdateManager
+from decky_proxy.version import VERSION
 
 
 class Plugin:
@@ -31,7 +32,7 @@ class Plugin:
             Controller(secret),
             secret,
         )
-        self.service.updates = UpdateManager(Path(decky.DECKY_PLUGIN_DIR), runtime, "0.2.3")
+        self.service.updates = UpdateManager(Path(decky.DECKY_PLUGIN_DIR), runtime, VERSION)
         await self.service.updates.recover()
         state = await self.service.get_status()
         if state["auto_start"] and state["update"]["state"] != "installing":

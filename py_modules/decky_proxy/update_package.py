@@ -25,6 +25,7 @@ REQUIRED = (
     "py_modules/decky_proxy/update_helper.py",
     "py_modules/decky_proxy/safe_regex.py",
     "py_modules/decky_proxy/regex_worker.py",
+    "py_modules/decky_proxy/version.py",
 )
 FORBIDDEN = frozenset({"settings", "data", "logs", ".git", ".ssh", ".env", "__pycache__"})
 

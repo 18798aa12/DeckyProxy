@@ -12,6 +12,7 @@ from .network import fetch_https
 from .profile_files import LocalYamlFiles
 from .profile_operations import ProfileOperations
 from .storage import Store, atomic_write, private_directory, write_json
+from .version import VERSION
 
 READY_ATTEMPTS = 30
 
@@ -45,7 +46,7 @@ class ProxyService(ProfileOperations, MaintenanceOperations):
             "platform_supported": self.core.supported,
             "last_error": self.last_error or self.maintenance_error,
             "mixed_port": 19790,
-            "version": "0.2.4",
+            "version": VERSION,
             "active_profile_summary": await asyncio.to_thread(self.profile_summary, state),
             "update": self.updates.status()
             if self.updates
