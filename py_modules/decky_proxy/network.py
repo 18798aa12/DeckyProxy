@@ -5,9 +5,33 @@ import ipaddress
 import socket
 import ssl
 import time
+from pathlib import Path
 from urllib.parse import SplitResult, urljoin, urlsplit
 
 from .errors import ProxyError
+
+_SYSTEM_CA_BUNDLES = (
+    Path("/etc/ssl/cert.pem"),
+    Path("/etc/ssl/certs/ca-certificates.crt"),
+    Path("/etc/pki/tls/certs/ca-bundle.crt"),
+)
+
+
+def trusted_context() -> ssl.SSLContext:
+    """Decky's frozen Python may start without the system's CA certificates."""
+    context = ssl.create_default_context()
+    if context.cert_store_stats()["x509_ca"]:
+        return context
+    for bundle in _SYSTEM_CA_BUNDLES:
+        if not bundle.is_file():
+            continue
+        try:
+            context.load_verify_locations(cafile=str(bundle))
+        except (OSError, ssl.SSLError):
+            continue
+        if context.cert_store_stats()["x509_ca"]:
+            return context
+    raise ProxyError("系统 HTTPS 证书库不可用，请检查 SteamOS 系统证书后重试")
 
 
 def validate_url(url: str) -> SplitResult:
@@ -78,7 +102,7 @@ def fetch_https(url: str, max_bytes: int = 4 * 1024 * 1024) -> bytes:
         connection = PublicHTTPSConnection(
             parsed.hostname.encode("idna").decode(),
             timeout=25,
-            context=ssl.create_default_context(),
+            context=trusted_context(),
         )
         try:
             path = parsed.path or "/"

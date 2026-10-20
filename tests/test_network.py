@@ -1,8 +1,42 @@
 import socket
+import ssl
+from pathlib import Path
 
 import pytest
 from decky_proxy.errors import ProxyError
 from decky_proxy.network import fetch_https, public_addresses, validate_url
+
+
+def test_frozen_runtime_loads_system_ca_without_disabling_verification(monkeypatch, tmp_path):
+    from decky_proxy import network
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    assert context.cert_store_stats()["x509_ca"] == 0
+    default = ssl.get_default_verify_paths().cafile
+    candidates = ([Path(default)] if default else []) + [
+        Path("/etc/ssl/cert.pem"), Path("/etc/ssl/certs/ca-certificates.crt")]
+    bundle = next(path for path in candidates if path.is_file())
+    invalid = tmp_path / "invalid-ca.pem"
+    invalid.write_text("invalid-certificate")
+    monkeypatch.setattr(ssl, "create_default_context", lambda: context)
+    monkeypatch.setattr(network, "_SYSTEM_CA_BUNDLES", (tmp_path / "missing", invalid, bundle),
+                        raising=False)
+    result = network.trusted_context()
+    assert result is context
+    assert result.cert_store_stats()["x509_ca"] > 0
+    assert result.check_hostname is True
+    assert result.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_missing_system_trust_never_disables_https_verification(monkeypatch, tmp_path):
+    from decky_proxy import network
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    monkeypatch.setattr(ssl, "create_default_context", lambda: context)
+    monkeypatch.setattr(network, "_SYSTEM_CA_BUNDLES", (tmp_path / "missing",), raising=False)
+    with pytest.raises(ProxyError, match="证书库"):
+        network.trusted_context()
+    assert context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED
 
 
 @pytest.mark.parametrize(
