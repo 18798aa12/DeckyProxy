@@ -73,7 +73,10 @@ def _walk(sequence: parser.SubPattern, depth: int = 0, in_assertion: bool = Fals
     cost = _Cost()
     for operation, value in sequence:
         child = _Cost()
-        if operation in {constants.LITERAL, constants.NOT_LITERAL, constants.ANY}:
+        if operation in {constants.LITERAL, constants.NOT_LITERAL, constants.ANY,
+                         constants.FAILURE}:
+            # Python 3.13 folds (?!) into FAILURE. It always fails immediately
+            # and is the exact empty-membership pattern emitted by this module.
             pass
         elif operation == constants.AT:
             if value not in _ANCHORS:

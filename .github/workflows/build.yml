@@ -15,6 +15,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  python-steamos:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install Python test tools
+        run: python -m pip install -r requirements-dev.txt
+      - name: Check backend on SteamOS Python version
+        run: |
+          python -m ruff check main.py py_modules scripts tests
+          python -m pytest --cov=decky_proxy --cov-report=term-missing
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

@@ -96,6 +96,24 @@ def test_normalization_empty_matches_and_large_generated_canonical_alternations(
     assert not filter_match(result, "another-node")
 
 
+def test_empty_membership_remains_valid_when_python_313_optimizes_to_failure(monkeypatch):
+    from decky_proxy import safe_regex
+
+    original = safe_regex.parser.parse
+
+    def optimized(pattern, flags=0, state=None):
+        if pattern == "(?!)":
+            return safe_regex.parser.SubPattern(
+                safe_regex.parser.State(), [(safe_regex.constants.FAILURE, None)])
+        return original(pattern, flags, state)
+
+    safe_regex._checked_pattern.cache_clear()
+    monkeypatch.setattr(safe_regex.parser, "parse", optimized)
+    assert normalize_filters(["^missing$"], ["JP"])["^missing$"] == "(?!)"
+    assert validate_filter("(?!)") == "(?!)"
+    assert not filter_match("(?!)", "JP")
+
+
 def test_fixed_width_lookbehind_has_no_arbitrary_repeat_limit():
     names = ["aJP", "bJP", "JP"]
     for source, expected in [("(?<=a)JP", [True, False, False]),
