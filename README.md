@@ -4,7 +4,9 @@
 
 这是独立项目。安装包面向 **SteamOS / Linux x86_64**；macOS 只用于开发、测试和打包。**尚未完成 Steam Deck 真机验收**，请先阅读[真机检查表](docs/STEAM_DECK_TESTING.md)。
 
-## v0.2.3 功能
+## v0.2.4 功能
+
+v0.2.4 修复合法节点筛选被误报“过于复杂”：支持嵌套前瞻、复合重复、较长多分支与更多反引号分段。导入时先计算当前节点的实际匹配集合，再交给内核；只有实际超时、资源超限或不支持的语法才会给出对应错误。原有订阅、策略组和规则继续保留，更新不删除个人配置。
 
 v0.2.3 修复开启 TUN 后误报“路由未建立”并停止内核的问题：兼容 iproute2 把路由表编号输出成字符串的实际格式，统一按数值检查专用路由与冲突。关闭 TUN 能看到节点时，已有 YAML 已成功导入，升级后无需重新导入。
 
@@ -25,9 +27,9 @@ v0.2.3 修复开启 TUN 后误报“路由未建立”并停止内核的问题�
 
 仅节点订阅继续使用内置“节点选择 / 自动选择”组与局域网直连规则，**不会自动增加中国大陆直连规则**；需要国内直连时导入含对应规则的完整订阅。Steam 下载可能消耗代理流量；游戏 UDP 取决于协议与服务商。
 
-不支持 Base64、单节点分享链接、本地文件 provider、自定义鉴权请求头、脚本、sub-rules、relay 及不受支持的本地文件/接口配置；导入时会明确报错。节点 provider 的 Clash User-Agent 声明由后端固定兼容值代替，下载必须直连。复杂或可能回溯失控的筛选正则会被拒绝。策略组健康检查使用插件固定地址。MRS 需系统 libzstd（SteamOS 已提供），也可使用 YAML/text。不是所有 Mihomo 扩展都兼容，最终由锁定内核校验。
+不支持 Base64、单节点分享链接、本地文件 provider、自定义鉴权请求头、脚本、sub-rules、relay 及不受支持的本地文件/接口配置；导入时会明确报错。节点 provider 的 Clash User-Agent 声明由后端固定兼容值代替，下载必须直连。合法复杂筛选通过限时子进程求值，实际回溯超时才中止；语法错误与执行超时分别提示。策略组健康检查使用插件固定地址。MRS 需系统 libzstd（SteamOS 已提供），也可使用 YAML/text。不是所有 Mihomo 扩展都兼容，最终由锁定内核校验。
 
-节点筛选在导入时按当前节点计算并转换为精确名称匹配，刷新订阅时重新计算；支持常用 Python/.NET 共有的表达式，部分扩展和 Unicode 分类语义可能与其他 Clash 客户端不同。复杂表达式在限时子进程内处理，Linux 另限制其内存。
+节点筛选在导入时按当前节点计算并转换为精确名称匹配，刷新订阅时重新计算；支持常用 Python/.NET 共有的表达式，部分扩展和 Unicode 分类语义可能与其他 Clash 客户端不同。复杂表达式在限时子进程内处理，Linux 另限制其内存。单个原始表达式最大 16 KiB UTF-8；原始表达式不会直接传给内核执行，订阅刷新时随节点重新计算。
 
 ### 从 v0.1 升级
 
@@ -41,26 +43,26 @@ v0.1 没有更新模块，需要手动安装一次 v0.2 ZIP。个人配置保持
 
 GitHub 直连或短链接无法访问时，可尝试以下第三方加速线路；加速站只传输公开安装包；网络可用性取决于运营商。使用同版本 SHA256SUMS 核对安装包，或在 v0.2 内使用发行签名验证的更新。
 
-- [加速下载一（ghfast.top）](https://ghfast.top/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.3/DeckyProxy-0.2.3.zip)
-- [加速下载二（gh-proxy.org）](https://gh-proxy.org/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.3/DeckyProxy-0.2.3.zip)
+- [加速下载一（ghfast.top）](https://ghfast.top/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.4/DeckyProxy-0.2.4.zip)
+- [加速下载二（gh-proxy.org）](https://gh-proxy.org/https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.4/DeckyProxy-0.2.4.zip)
 
 下载 ZIP 后可在 Decky 的“从 ZIP 安装插件”入口安装；也可将上述加速链接粘贴到“从 URL 安装插件”。安装 ZIP 已包含内核，无需先从 GitHub 下载内核。
 
-校验值见同次发布的 `SHA256SUMS`。精确版本源码附件随 [v0.2.3 发布](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.3)提供。
+校验值见同次发布的 `SHA256SUMS`。精确版本源码附件随 [v0.2.4 发布](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.4)提供。
 
 ### 原始发布链接
 
 公开测试包可通过 Decky **设置 → 开发者 → 从 URL 安装插件**，粘贴以下链接安装：
 
 ```text
-https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.3/DeckyProxy-0.2.3.zip
+https://github.com/18798aa12/DeckyProxy/releases/download/v0.2.4/DeckyProxy-0.2.4.zip
 ```
 
-也可以在 [GitHub Releases](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.3) 下载 ZIP 后按下面步骤安装。当前版本**未上架官方商店**，原因与条件见[发布说明](docs/PUBLISHING.md)。
+也可以在 [GitHub Releases](https://github.com/18798aa12/DeckyProxy/releases/tag/v0.2.4) 下载 ZIP 后按下面步骤安装。当前版本**未上架官方商店**，原因与条件见[发布说明](docs/PUBLISHING.md)。
 
 1. 先安装并确认 [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) 正常工作。
 2. **停止其他 Clash / VPN / TUN 代理**，包括 ToMoon、DeckyClash 或桌面模式里运行的代理客户端，避免争用路由和 DNS。
-3. 将 `release/DeckyProxy-0.2.3.zip` 传到 Deck。可先在电脑核对同目录 `SHA256SUMS`：Linux 使用 `sha256sum -c SHA256SUMS`，macOS 使用 `shasum -a 256 -c SHA256SUMS`。
+3. 将 `release/DeckyProxy-0.2.4.zip` 传到 Deck。可先在电脑核对同目录 `SHA256SUMS`：Linux 使用 `sha256sum -c SHA256SUMS`，macOS 使用 `shasum -a 256 -c SHA256SUMS`。
 4. 打开 Decky 设置，启用开发者模式，在“开发者”里的“从 ZIP 安装插件”选择安装包。Decky 版本不同，入口文字可能略有差异；本项目尚未上架插件商店。
 5. 在 QAM 打开 **DeckyProxy**，点击“选择 YAML 文件并导入”，选择先前下载的配置；也可输入名称和公网 HTTPS 订阅，点击“导入配置”。然后选择要使用的配置。
 6. 检查模式和 TUN 设置后，手动打开“启用代理”。通常游戏与 Steam 系统流量需要 TUN；关闭 TUN 时只启动本地 HTTP / SOCKS 混合代理端口 `127.0.0.1:19790`，应用需自行使用该代理。
@@ -106,8 +108,8 @@ python3 -m venv .venv
 
 ```text
 release/
-├── DeckyProxy-0.2.3.zip
-├── DeckyProxy-0.2.3-source.tar.gz
+├── DeckyProxy-0.2.4.zip
+├── DeckyProxy-0.2.4-source.tar.gz
 ├── SHA256SUMS
 ├── update.json       # 发行者单独签名后生成
 └── update.json.sig

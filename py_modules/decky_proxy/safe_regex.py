@@ -1,7 +1,8 @@
-"""Conservative shared Python/Mihomo regex subset for short node names.
+"""Materialize subscription filters into bounded, literal node memberships.
 
-Mihomo uses a backtracking regex engine. Parsing successfully does not bound its
-execution time, so imported filters must pass this structural check first.
+Simple expressions use a conservative fast path. All other source expressions
+run in an isolated evaluator with CPU, memory and wall-clock limits. Neither the
+root controller nor Mihomo receives the original backtracking expression.
 """
 
 import json
@@ -17,7 +18,13 @@ from re import _parser as parser
 from .errors import ProxyError
 
 _ERROR = "节点筛选表达式过于复杂或不兼容，请简化后重新导入"
+_INPUT_ERROR = "节点筛选条件数据无效或超过容量限制"
+_SYNTAX_ERROR = "节点筛选正则语法无效或暂不支持，请检查订阅的筛选条件"
+_BUDGET_ERROR = "节点筛选执行超时或超过资源限制，当前配置未更改"
+_WORKER_ERROR = "节点筛选处理失败，请更新插件后重试"
 _MAX_NAMES = 2304
+_MAX_SOURCE_BYTES = 16 * 1024
+_MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 _MAX_CANONICAL_LENGTH = 1_800_000
 _MAX_NORMALIZED_BYTES = 4 * 1024 * 1024
 _FLAGS = re.IGNORECASE | re.MULTILINE | re.DOTALL | re.VERBOSE
@@ -60,8 +67,7 @@ def _atom(sequence: parser.SubPattern, depth: int) -> bool:
     return False
 
 
-def _walk(sequence: parser.SubPattern, depth: int = 0, in_assertion: bool = False,
-          *, broad: bool = False) -> _Cost:
+def _walk(sequence: parser.SubPattern, depth: int = 0, in_assertion: bool = False) -> _Cost:
     if depth > 8:
         _reject()
     cost = _Cost()
@@ -83,9 +89,9 @@ def _walk(sequence: parser.SubPattern, depth: int = 0, in_assertion: bool = Fals
             _, added_flags, removed_flags, contents = value
             if (added_flags | removed_flags) & ~_FLAGS:
                 _reject()
-            child = _walk(contents, depth + 1, in_assertion, broad=broad)
+            child = _walk(contents, depth + 1, in_assertion)
         elif operation == constants.BRANCH:
-            alternatives = tuple(_walk(branch, depth + 1, in_assertion, broad=broad)
+            alternatives = tuple(_walk(branch, depth + 1, in_assertion)
                                  for branch in value[1])
             child = _Cost(
                 variables=max((branch.variables for branch in alternatives), default=0),
@@ -96,22 +102,20 @@ def _walk(sequence: parser.SubPattern, depth: int = 0, in_assertion: bool = Fals
             lower, upper, contents = value
             if lower > 128 or (upper != constants.MAXREPEAT and upper > 128):
                 _reject()
-            if not _atom(contents, depth + 1) and not (broad and upper <= 1):
+            if not _atom(contents, depth + 1):
                 _reject()
-            repeated = _walk(contents, depth + 1, in_assertion, broad=broad)
+            repeated = _walk(contents, depth + 1, in_assertion)
             child = _Cost(int(lower != upper) + repeated.variables,
                           repeated.nodes, repeated.assertions)
         elif operation in _ASSERTIONS:
             direction, contents = value
             # Nested lookaheads can multiply backtracking across otherwise safe
             # individual sequences. Only sibling forward assertions are allowed.
-            if direction != 1 and (not broad or direction != -1
-                                   or contents.getwidth()[0] != contents.getwidth()[1]
-                                   or contents.getwidth()[1] > 128):
+            if direction != 1:
                 _reject()
-            if in_assertion and not broad:
+            if in_assertion:
                 _reject()
-            assertion = _walk(contents, depth + 1, True, broad=broad)
+            assertion = _walk(contents, depth + 1, True)
             child = _Cost(nodes=assertion.nodes, assertions=assertion.assertions + 1)
         else:
             _reject()
@@ -120,13 +124,12 @@ def _walk(sequence: parser.SubPattern, depth: int = 0, in_assertion: bool = Fals
             cost.nodes + child.nodes + 1,
             cost.assertions + child.assertions,
         )
-        if ((not broad and cost.variables > 1) or cost.nodes > (512 if broad else 256)
-                or cost.assertions > (8 if broad else 4)):
+        if cost.variables > 1 or cost.nodes > 256 or cost.assertions > 4:
             _reject()
     return cost
 
 
-def _parse(pattern: str, *, broad: bool = False) -> None:
+def _parse(pattern: str) -> None:
     if (not isinstance(pattern, str) or len(pattern) > 1024
             or re.search(r"[\x00-\x1f\x7f]", pattern)):
         _reject()
@@ -138,7 +141,7 @@ def _parse(pattern: str, *, broad: bool = False) -> None:
         parsed = parser.parse(pattern, 0)
         if parsed.state.flags & ~(_FLAGS | re.UNICODE):
             _reject()
-        _walk(parsed, broad=broad)
+        _walk(parsed)
     except (re.error, OverflowError, RecursionError, ValueError, TypeError):
         raise ProxyError(_ERROR) from None
 
@@ -221,9 +224,9 @@ def _retain(values: dict[str, str], key: str, value: str,
         next_bytes = (used_bytes - len(values.get(key, "").encode("utf-8"))
                       + len(value.encode("utf-8")))
     except UnicodeError:
-        raise ProxyError(_ERROR) from None
+        raise ProxyError(_INPUT_ERROR) from None
     if next_bytes > _MAX_NORMALIZED_BYTES:
-        _reject()
+        raise ProxyError(_INPUT_ERROR)
     return {**values, key: value}, next_bytes
 
 
@@ -239,43 +242,53 @@ def _bounded_result(patterns: list[str], normalized: dict[str, str]) -> dict[str
     for pattern in patterns:
         total_bytes += len(normalized[pattern].encode("utf-8"))
         if total_bytes > _MAX_NORMALIZED_BYTES:
-            _reject()
+            raise ProxyError(_INPUT_ERROR)
     return normalized
 
 
 def normalize_filters(patterns: list[str], names: list[str]) -> dict[str, str]:
     """Replace nonempty source filters with exact memberships for both engines.
 
-    Strict filters match in process; broader expressions share one bounded child.
+    Strict filters match in process; other expressions share one bounded child.
     The child receives patterns and names through stdin, never argv/files. Empty
     strings retain Mihomo's special meaning of an absent inclusion/exclusion.
     """
     if (not isinstance(patterns, list) or len(patterns) > 512
             or not isinstance(names, list) or len(names) > _MAX_NAMES):
-        _reject()
+        raise ProxyError(_INPUT_ERROR)
     for name in names:
         if (not isinstance(name, str) or not name or len(name) > 128
                 or re.search(r"[\x00-\x1f\x7f]", name)):
-            _reject()
+            raise ProxyError(_INPUT_ERROR)
+        try:
+            name.encode("utf-8")
+        except UnicodeError:
+            raise ProxyError(_INPUT_ERROR) from None
     normalized, pending, used_bytes = {}, [], 0
     for pattern in patterns:
         if not isinstance(pattern, str):
-            _reject()
+            raise ProxyError(_INPUT_ERROR)
         if _canonical_names(pattern) is not None:
             normalized, used_bytes = _retain(normalized, pattern, pattern, used_bytes)
             continue
         if not pattern:
             normalized, used_bytes = _retain(normalized, pattern, pattern, used_bytes)
             continue
-        if len(pattern) > 1024 or pattern.count("`") >= 16:
-            _reject()
+        try:
+            if (len(pattern.encode("utf-8")) > _MAX_SOURCE_BYTES
+                    or re.search(r"[\x00-\x1f\x7f]", pattern)):
+                raise ProxyError(_INPUT_ERROR)
+        except UnicodeError:
+            raise ProxyError(_INPUT_ERROR) from None
         expressions = pattern.split("`")
         try:
+            # Many individually simple alternatives must share the same CPU
+            # deadline as composite expressions, rather than block the backend.
+            if len(expressions) > 16:
+                raise ProxyError(_ERROR)
             for expression in expressions:
                 validate_filter(expression)
         except ProxyError:
-            for expression in expressions:
-                _parse(expression, broad=True)
             if pattern not in pending:
                 pending.append(pattern)
         else:
@@ -286,7 +299,9 @@ def normalize_filters(patterns: list[str], names: list[str]) -> dict[str, str]:
             )
     if not pending:
         return _bounded_result(patterns, normalized)
-    payload = json.dumps({"patterns": pending, "names": names}).encode()
+    payload = json.dumps({"patterns": pending, "names": names}, ensure_ascii=False).encode()
+    if len(payload) > _MAX_PAYLOAD_BYTES:
+        raise ProxyError(_INPUT_ERROR)
     try:
         executable = "/usr/bin/python3" if sys.platform == "linux" or getattr(
             sys, "frozen", False) else sys.executable
@@ -295,18 +310,24 @@ def normalize_filters(patterns: list[str], names: list[str]) -> dict[str, str]:
             input=payload, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2,
             check=False, env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
         )
+        if result.returncode == 3:
+            raise ProxyError(_SYNTAX_ERROR)
+        if result.returncode < 0 or result.returncode == 4:
+            raise ProxyError(_BUDGET_ERROR)
         if result.returncode or len(result.stdout) > len(pending) * (len(names) + 4) + 2:
-            _reject()
+            raise ProxyError(_WORKER_ERROR)
         bitsets = json.loads(result.stdout)
         if not isinstance(bitsets, list) or len(bitsets) != len(pending):
-            _reject()
+            raise ProxyError(_WORKER_ERROR)
         for pattern, bits in zip(pending, bitsets, strict=True):
             if (not isinstance(bits, str) or len(bits) != len(names)
                     or set(bits) - {"0", "1"}):
-                _reject()
+                raise ProxyError(_WORKER_ERROR)
             selected = [name for name, bit in zip(names, bits, strict=True) if bit == "1"]
             value = _exact_names(selected)
             normalized, used_bytes = _retain(normalized, pattern, value, used_bytes)
+    except subprocess.TimeoutExpired:
+        raise ProxyError(_BUDGET_ERROR) from None
     except (OSError, subprocess.SubprocessError, ValueError, TypeError):
-        raise ProxyError(_ERROR) from None
+        raise ProxyError(_WORKER_ERROR) from None
     return _bounded_result(patterns, normalized)

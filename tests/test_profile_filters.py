@@ -17,17 +17,27 @@ def prepare(value: dict) -> dict:
 
 
 @pytest.mark.parametrize("key", ["filter", "exclude-filter"])
-def test_nested_quantifier_group_filters_rejected_before_core_use(key):
-    with pytest.raises(ProxyError):
-        prepare({"proxies": [NODE_B], "proxy-groups": [
-            {"name": "Group", "type": "select", "proxies": ["B"], key: "(a+)+$"}]})
+def test_nested_quantifier_group_filters_are_frozen_before_core_use(key):
+    nodes = [{**NODE_B, "name": "aa"}, NODE_B]
+    profile = prepare({"proxies": nodes, "proxy-groups": [
+        {"name": "Group", "type": "select", "include-all-proxies": True, key: "(a+)+$"}]})
+    config = build_config(profile, mode="rule", tun=False, secret="owned")
+    expression = config["proxy-groups"][0][key]
+    assert expression != "(a+)+$"
+    assert filter_match(expression, "aa")
+    assert not filter_match(expression, "B")
 
 
 @pytest.mark.parametrize("key", ["filter", "exclude-filter"])
-def test_nested_quantifier_provider_filters_rejected_before_core_use(key):
-    with pytest.raises(ProxyError):
-        prepare({"proxy-providers": {"Remote": {
-            "type": "inline", "payload": [NODE_B], key: "(a+)+$"}}})
+def test_nested_quantifier_provider_filters_are_frozen_before_core_use(key):
+    profile = prepare({"proxy-providers": {"Remote": {
+        "type": "inline", "payload": [{**NODE_B, "name": "aa"}, NODE_B], key: "(a+)+$"}},
+        "proxy-groups": [{"name": "Group", "type": "select", "use": ["Remote"]}]})
+    config = build_config(profile, mode="rule", tun=False, secret="owned")
+    expression = config["proxy-providers"]["Remote"][key]
+    assert expression != "(a+)+$"
+    assert filter_match(expression, "aa")
+    assert not filter_match(expression, "B")
 
 
 @pytest.mark.parametrize("settings", [
@@ -85,19 +95,30 @@ def test_group_exclude_type_uses_mihomo_runtime_type_names():
 
 
 def test_unsafe_stored_group_filter_revalidated_at_startup():
-    profile = prepare({"proxies": [NODE_B], "proxy-groups": [
-        {"name": "Group", "type": "select", "proxies": ["B"]}]})
+    node = {**NODE_B, "name": "a" * 100 + "!"}
+    profile = prepare({"proxies": [node], "proxy-groups": [
+        {"name": "Group", "type": "select", "proxies": [node["name"]]}]})
     modified = {**profile, "groups": [{**profile["groups"][0], "filter": "(a+)+$"}]}
-    with pytest.raises(ProxyError):
+    with pytest.raises(ProxyError, match="超时|资源"):
         build_config(modified, mode="rule", tun=False, secret="owned")
+    assert "filter" not in profile["groups"][0]
 
 
 def test_unsafe_stored_provider_filter_revalidated_at_startup():
-    profile = prepare({"proxy-providers": {"Remote": {"type": "inline", "payload": [NODE_B]}}})
+    node = {**NODE_B, "name": "a" * 100 + "!"}
+    profile = prepare({"proxy-providers": {"Remote": {"type": "inline", "payload": [node]}}})
     modified = {**profile, "proxy_providers": {"Remote": {
         **profile["proxy_providers"]["Remote"], "exclude-filter": "(a+)+$"}}}
-    with pytest.raises(ProxyError):
+    with pytest.raises(ProxyError, match="超时|资源"):
         build_config(modified, mode="rule", tun=False, secret="owned")
+    assert "exclude-filter" not in profile["proxy_providers"]["Remote"]
+
+
+def test_complex_source_filter_still_detects_real_dialer_cycles():
+    with pytest.raises(ProxyError, match="循环引用"):
+        prepare({"proxies": [NODE_A, NODE_B], "proxy-groups": [
+            {"name": "Group", "type": "select", "include-all-proxies": True,
+             "filter": "^(?:(?!B).)*$"}]})
 
 
 def test_bounded_composite_filter_becomes_equivalent_literal_membership():

@@ -23,6 +23,8 @@ def package(version="0.2.1", extra=None):
         "DeckyProxy/assets/update-allowed-signers": b"public key",
         "DeckyProxy/py_modules/decky_proxy/updates.py": b"# updater\n",
         "DeckyProxy/py_modules/decky_proxy/update_helper.py": b"# helper\n",
+        "DeckyProxy/py_modules/decky_proxy/safe_regex.py": b"# filter normalization\n",
+        "DeckyProxy/py_modules/decky_proxy/regex_worker.py": b"# isolated worker\n",
     }
     files.update(extra or {})
     result = io.BytesIO()
@@ -32,6 +34,19 @@ def package(version="0.2.1", extra=None):
             info.external_attr = (stat.S_IFREG | 0o644) << 16
             archive.writestr(info, content)
     return result.getvalue()
+
+
+@pytest.mark.parametrize("module", ["safe_regex.py", "regex_worker.py"])
+def test_update_requires_complete_filter_runtime(tmp_path, module):
+    source = io.BytesIO(package())
+    result = io.BytesIO()
+    with zipfile.ZipFile(source) as old, zipfile.ZipFile(result, "w") as new:
+        for member in old.infolist():
+            if member.filename != f"DeckyProxy/py_modules/decky_proxy/{module}":
+                new.writestr(member, old.read(member))
+    with pytest.raises(ProxyError, match="必需文件"):
+        extract_release(result.getvalue(), tmp_path / "stage", "0.2.1")
+    assert not (tmp_path / "stage").exists()
 
 
 def test_extracts_only_valid_new_plugin(tmp_path):

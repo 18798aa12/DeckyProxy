@@ -5,8 +5,17 @@ import re
 import resource
 import sys
 
+MAX_SOURCE_BYTES = 16 * 1024
+
+
+def _text(value: object, maximum: int, *, allow_empty: bool = False) -> bool:
+    return (isinstance(value, str) and (allow_empty or bool(value))
+            and len(value.encode("utf-8")) <= maximum
+            and not re.search(r"[\x00-\x1f\x7f]", value))
+
 
 def main() -> int:
+    """Return only bitsets: 2 invalid input, 3 invalid syntax, 4 resource failure."""
     try:
         resource.setrlimit(resource.RLIMIT_CPU, (1, 1))
         # Darwin rejects both RLIMIT_AS and RLIMIT_DATA. The target SteamOS
@@ -19,7 +28,11 @@ def main() -> int:
             return 2
         data = json.loads(payload)
         patterns, names = data["patterns"], data["names"]
-        if len(patterns) > 512 or len(names) > 2304:
+        if (not isinstance(patterns, list) or len(patterns) > 512
+                or not isinstance(names, list) or len(names) > 2304
+                or any(not _text(pattern, MAX_SOURCE_BYTES, allow_empty=True)
+                       for pattern in patterns)
+                or any(not _text(name, 512) or len(name) > 128 for name in names)):
             return 2
         output = []
         for pattern in patterns:
@@ -28,7 +41,11 @@ def main() -> int:
                                   for name in names))
         sys.stdout.write(json.dumps(output, separators=(",", ":")))
         return 0
-    except (KeyError, TypeError, ValueError, OSError, MemoryError, re.error):
+    except (re.error, RecursionError, OverflowError):
+        return 3
+    except (OSError, MemoryError):
+        return 4
+    except (KeyError, TypeError, ValueError):
         return 2
 
 

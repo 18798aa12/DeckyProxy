@@ -1,8 +1,11 @@
-# v0.2.3 验证记录
+# v0.2.4 验证记录
 
-日期：**2026-10-18**。开发主机为 macOS / Apple Silicon。**尚未完成 Steam Deck 真机验收**；本记录不把自动化检查当作 Steam Deck 的 TUN 接管、DNS、UDP、休眠或真实 Decky 升级已通过。
+日期：**2026-10-21**。开发主机为 macOS / Apple Silicon。**尚未完成 Steam Deck 真机验收**；本记录不把自动化检查当作 Steam Deck 的 TUN 接管、DNS、UDP、休眠或真实 Decky 升级已通过。
 
 ## 本地检查
+
+- v0.2.4 先复现合法嵌套/复合重复/深层分组/较长多分支/多段筛选被结构限制拒绝，再改为限时隔离求值；新增实际灾难回溯超时、语法与资源错误分类、无效 UTF-8 边界、重复字段输出预算及缺少筛选运行模块的更新包拒绝回归。
+- 私有完整订阅在离线缓存下重新导入并构建运行配置，所有筛选在节点及组名称上与预期成员逐项比对一致；原始 YAML 保持不变，真实内核配置校验通过。私有数据、日志和诊断脚本均留在忽略的缓存内。
 
 - TypeScript 类型检查、前端测试、Rollup 生产构建通过；精确数量见对应提交的 CI 输出。
 - Python 全量测试、80% 覆盖率门槛、Ruff 与差异空白检查通过；精确数量与覆盖率见对应提交的 CI 输出。
@@ -24,7 +27,7 @@
 
 - 通过基础配置与原始策略组、provider、GEO / ASN 规则及 AnyTLS / WireGuard 节点的 `-t` 校验。
 - 实际加载 GEOIP CN **10009** 条记录、GeoSite CN **110534** 条记录。
-- 实际转换 MRS，短时启动关闭 TUN/代理监听/DNS 的内核，通过鉴权回环 API 确认 classical、inline、MRS 规则集数量非零。
+- 实际转换 MRS，短时启动关闭 TUN/代理监听/DNS 的内核，通过鉴权回环 API 确认 classical、inline、MRS 规则集数量非零。v0.2.4 另核对复杂 provider 包含/排除筛选、组前瞻与重复、多分支长表达式经过导入后的真实 `/proxies` 组成员精确集合。
 - 测试结束停止自有进程；未修改主机路由或系统 DNS。
 
 发布 ZIP 内只含 Linux amd64-v1 内核。Linux CI 额外运行真实内核同样的配置/规则 API 检查、父进程死亡保护及真实 `renameat2(RENAME_EXCHANGE)` 回归；详见[CI 运行记录](https://github.com/18798aa12/DeckyProxy/actions)。本地不执行 Linux ELF。

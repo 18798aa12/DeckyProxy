@@ -96,22 +96,80 @@ def test_normalization_empty_matches_and_large_generated_canonical_alternations(
     assert not filter_match(result, "another-node")
 
 
-def test_only_fixed_width_lookbehind_is_supported_in_isolated_fallback():
+def test_fixed_width_lookbehind_has_no_arbitrary_repeat_limit():
     names = ["aJP", "bJP", "JP"]
     for source, expected in [("(?<=a)JP", [True, False, False]),
                              ("(?<!a)JP", [False, True, True])]:
         normalized = normalize_filters([source], names)[source]
         assert normalized != source
         assert [filter_match(normalized, name) for name in names] == expected
-    for source in ["(?<=a+)JP", "(?<=a{129})JP"]:
-        with pytest.raises(ProxyError):
-            normalize_filters([source], names)
+    source = "(?<=a{129})JP"
+    assert normalize_filters([source], names)[source] == "(?!)"
+    with pytest.raises(ProxyError, match="语法"):
+        normalize_filters(["(?<=a+)JP"], names)
 
 
-@pytest.mark.parametrize("pattern", ["(a+)+$", "(a|aa)+$", "(a{128}){128}", "(a)?(?(1)b|c)"])
-def test_fallback_never_accepts_pathological_patterns_even_with_trivial_names(pattern):
-    with pytest.raises(ProxyError):
-        normalize_filters([pattern], ["b"])
+@pytest.mark.parametrize("pattern,expected", [
+    ("(a+)+$", [False, True, False, False]),
+    ("(a|aa)+$", [False, True, False, False]),
+    ("(a{128}){128}", [False, False, False, False]),
+    ("(a)?(?(1)b|c)", [False, False, True, True]),
+    ("^(?:ab){2}$", [False, False, False, False]),
+    ("(" * 20 + "aa" + ")" * 20, [False, True, False, False]),
+    ("(?=a)" * 20 + "a+$", [False, True, False, False]),
+])
+def test_valid_composite_filters_are_evaluated_instead_of_rejected_by_shape(pattern, expected):
+    names = ["x", "aa", "ab", "c"]
+    normalized = normalize_filters([pattern], names)[pattern]
+    assert normalized != pattern
+    assert [filter_match(normalized, name) for name in names] == expected
+
+
+def test_tempered_token_filters_used_by_subscriptions_preserve_memberships():
+    source = "(?i)^(?:(?!流量|过期|官网).)*(?:HK|香港)$"
+    names = ["test-HK", "test香港", "剩余流量HK", "过期香港", "JP", "hk"]
+    normalized = normalize_filters([source], names)[source]
+    assert [filter_match(normalized, name) for name in names] == [
+        True, True, False, False, False, True,
+    ]
+
+
+def test_long_alternations_and_many_backtick_alternatives_are_supported():
+    alternatives = "|".join(f"region-{index:04d}" for index in range(300))
+    source = f"^(?:{alternatives})$"
+    many_parts = "`".join(f"^region-{index:04d}$" for index in range(40))
+    names = ["region-0000", "region-0039", "region-0299", "unmatched"]
+    result = normalize_filters([source, many_parts], names)
+    assert [filter_match(result[source], name) for name in names] == [True, True, True, False]
+    assert [filter_match(result[many_parts], name) for name in names] == [True, True, False, False]
+
+
+def test_many_simple_backtick_parts_also_use_the_bounded_evaluator(monkeypatch):
+    import subprocess
+    from types import SimpleNamespace
+
+    calls = []
+
+    def capture(*args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=0, stdout=b'["0"]')
+
+    monkeypatch.setattr(subprocess, "run", capture)
+    source = "`".join(["^missing$"] * 40)
+    assert normalize_filters([source], ["JP"])[source] == "(?!)"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("pattern", ["(a+)+$", "(a|aa)+$"])
+def test_actual_backtracking_is_killed_without_exposing_expression_or_node(pattern):
+    import time
+
+    started = time.monotonic()
+    with pytest.raises(ProxyError, match="超时|资源") as error:
+        normalize_filters([pattern], ["a" * 100 + "!"])
+    assert time.monotonic() - started < 5
+    assert pattern not in str(error.value)
+    assert "a" * 100 not in str(error.value)
 
 
 def test_normalization_timeout_and_malformed_worker_result_are_safe(monkeypatch):
@@ -125,6 +183,7 @@ def test_normalization_timeout_and_malformed_worker_result_are_safe(monkeypatch)
     with pytest.raises(ProxyError) as error:
         normalize_filters(["(ab)?c"], ["abc"])
     assert "secret" not in str(error.value)
+    assert "超时" in str(error.value)
     for output in [b"not-json", b'["1", "1"]', b'["101"]', b'["x"]']:
         monkeypatch.setattr(subprocess, "run", lambda *a, output=output, **k: SimpleNamespace(
             returncode=0, stdout=output))
@@ -133,9 +192,10 @@ def test_normalization_timeout_and_malformed_worker_result_are_safe(monkeypatch)
 
 
 @pytest.mark.parametrize("patterns,names", [
-    (["a"] * 513, ["a"]), (["a"], ["a"] * 2305), (["a" * 1025], ["a"]),
-    (["a`" * 16], ["a"]), (["a"], ["a" * 129]), ([None], ["a"]),
-    (["a"], [None]), (["a"], ["bad\nname"]),
+    (["a"] * 513, ["a"]), (["a"], ["a"] * 2305), (["a" * 16385], ["a"]),
+    (["日" * 6000], ["a"]), (["a"], ["a" * 129]), ([None], ["a"]),
+    (["a"], [None]), (["a"], ["bad\nname"]), (["a\n"], ["a"]),
+    (["(ab)?"], ["\ud800"]), (["\ud800"], ["a"]),
 ])
 def test_normalization_checks_all_batch_boundaries(patterns, names):
     with pytest.raises(ProxyError):
@@ -146,6 +206,29 @@ def test_noncanonical_large_alternation_cannot_bypass_strict_validation():
     for malicious in ["^(?:" + "a" * 1025 + ")$", "^(?:a+|" + "b" * 1025 + ")$"]:
         with pytest.raises(ProxyError):
             validate_filter(malicious)
+
+
+def test_worker_errors_distinguish_syntax_resources_and_runtime(monkeypatch):
+    import subprocess
+    from types import SimpleNamespace
+
+    for code, message in [(3, "语法"), (4, "资源"), (-9, "资源"), (2, "处理失败")]:
+        monkeypatch.setattr(subprocess, "run", lambda *a, code=code, **k: SimpleNamespace(
+            returncode=code, stdout=b""))
+        with pytest.raises(ProxyError, match=message):
+            normalize_filters(["(ab)?c"], ["abc"])
+
+
+def test_worker_unavailable_has_an_actionable_message(monkeypatch):
+    import subprocess
+
+    def unavailable(*args, **kwargs):
+        raise FileNotFoundError("private-path")
+
+    monkeypatch.setattr(subprocess, "run", unavailable)
+    with pytest.raises(ProxyError, match="处理失败") as error:
+        normalize_filters(["(ab)?c"], ["abc"])
+    assert "private-path" not in str(error.value)
 
 
 def test_frozen_decky_runtime_uses_system_python_instead_of_loader(monkeypatch):

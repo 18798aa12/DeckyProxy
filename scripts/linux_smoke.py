@@ -27,8 +27,9 @@ from decky_proxy.configuration import (  # noqa: E402
 from decky_proxy.geodata import prepare_geodata  # noqa: E402
 
 
-def check_provider_api(binary: Path, config: Path, directory: str, full: dict) -> None:
-    """Confirm nonempty provider contents; -t alone can miss provider load failures."""
+def check_provider_api(binary: Path, config: Path, directory: str, full: dict,
+                       expected_groups: dict[str, set[str]]) -> None:
+    """Confirm provider loading and actual filtered memberships via the core API."""
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -61,11 +62,19 @@ def check_provider_api(binary: Path, config: Path, directory: str, full: dict) -
                     providers.get(name, {}).get("ruleCount", 0) > 0
                     for name in ("classical", "inline", "mrs")
                 ):
-                    break
+                    request = urllib.request.Request(
+                        f"http://127.0.0.1:{port}/proxies",
+                        headers={"Authorization": "Bearer test-only"},
+                    )
+                    with opener.open(request, timeout=1) as response:
+                        proxies = json.load(response)["proxies"]
+                    if all(set(proxies.get(name, {}).get("all", [])) == expected
+                           for name, expected in expected_groups.items()):
+                        break
             except (urllib.error.URLError, OSError):
                 pass
             if time.monotonic() >= deadline:
-                raise ValueError("Rule providers failed to load nonempty contents")
+                raise ValueError("Rule providers or filtered group memberships failed to load")
             time.sleep(0.1)
     finally:
         process.terminate()
@@ -134,7 +143,8 @@ def check_core(binary: Path) -> None:
         )
         assets = {
             "https://provider.example/nodes": json.dumps(
-                {"proxies": [{**nodes[0], "name": "provider-node"}]}
+                {"proxies": [{**nodes[0], "name": name} for name in (
+                    "HK-A", "HK-AA", "HK-B", "JP-A", "过期HK-A", "香港-A") ]}
             ).encode(),
             "https://provider.example/rules": b'payload: ["DOMAIN-SUFFIX,example.org"]',
             "https://provider.example/mrs": mrs_rules.read_bytes(),
@@ -144,7 +154,11 @@ def check_core(binary: Path) -> None:
                 {
                     "proxies": nodes,
                     "proxy-providers": {
-                        "pool": {"type": "http", "url": "https://provider.example/nodes"}
+                        "pool": {
+                            "type": "http", "url": "https://provider.example/nodes",
+                            "filter": "^(?:(?!过期).)*(?:HK|香港|JP)-(?:A|AA|B)$",
+                            "exclude-filter": "^(?:HK-B){1}$",
+                        }
                     },
                     "proxy-groups": [
                         {
@@ -153,9 +167,14 @@ def check_core(binary: Path) -> None:
                             "proxies": ["Auto", "DIRECT"],
                             "use": ["pool"],
                         },
-                        {"name": "Auto", "type": "url-test", "use": ["pool"]},
+                        {"name": "Auto", "type": "url-test", "use": ["pool"],
+                         "filter": "(?i)^(?:(?!JP).)*(?:HK|香港)-(?:A|AA)$"},
                         {"name": "Backup", "type": "fallback", "proxies": [nodes[0]["name"]]},
-                        {"name": "Balance", "type": "load-balance", "use": ["pool"]},
+                        {"name": "Balance", "type": "load-balance", "use": ["pool"],
+                         "filter": "(?=J)(?=JP)(?=JP-)(?!HK)(?!香港)(?!missing)(?:JP-){1}A$"},
+                        {"name": "LongFilter", "type": "select", "use": ["pool"],
+                         "filter": "^(?:HK-A|" + "|".join(
+                             f"unused-{index:04d}" for index in range(300)) + ")$"},
                     ],
                     "rule-providers": {
                         "classical": {
@@ -196,8 +215,14 @@ def check_core(binary: Path) -> None:
         subprocess.run(
             [str(binary), "-t", "-d", directory, "-f", str(config)], check=True, timeout=45
         )
-        check_provider_api(binary, config, directory, full)
-    print("Native core, groups, rules, provider API, MRS and GEO passed; TUN was not started")
+        check_provider_api(binary, config, directory, full, {
+            "Proxy": {"Auto", "DIRECT", "HK-A", "HK-AA", "JP-A", "香港-A"},
+            "Auto": {"HK-A", "HK-AA", "香港-A"},
+            "Backup": {nodes[0]["name"]},
+            "Balance": {"JP-A"},
+            "LongFilter": {"HK-A"},
+        })
+    print("Native core, filtered groups, providers, MRS and GEO passed; TUN was not started")
 
 
 def main() -> None:
